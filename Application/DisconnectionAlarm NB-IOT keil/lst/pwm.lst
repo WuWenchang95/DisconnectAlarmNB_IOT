@@ -1,0 +1,202 @@
+C51 COMPILER V9.01   PWM                                                                   07/28/2019 16:38:42 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE PWM
+OBJECT MODULE PLACED IN .\hex\pwm.obj
+COMPILER INVOKED BY: D:\keil\C51\BIN\C51.EXE ..\..\Library\Sources\pwm.c COMPACT ROM(COMPACT) OPTIMIZE(9,SIZE) BROWSE DE
+                    -BUG OBJECTEXTEND PRINT(.\lst\pwm.lst) OBJECT(.\hex\pwm.obj)
+
+line level    source
+
+   1          #ifndef _PWM_C_
+   2          #define _PWM_C_
+   3          
+   4          /*********************************************************************************************************
+             -************/
+   5          #include "ca51f_config.h"
+   6          #if (IC_TYPE == IC_TYPE_CA51F2X)
+              #include "../../includes/ca51f2sfr.h"
+              #include "../../includes/ca51f2xsfr.h"
+              #include "../../includes/gpiodef_f2.h"
+              #elif (IC_TYPE == IC_TYPE_CA51F3X)
+  11          #include "../../includes/ca51f3sfr.h"
+  12          #include "../../includes/ca51f3xsfr.h"
+  13          #include "../../includes/gpiodef_f3.h"
+  14          #endif
+  15          #include "../../includes/system.h"
+  16          #include "../../Library/includes/uart.h"
+  17          #include "../../Library/includes/pwm.h"
+  18          #include <intrins.h>
+  19          /*********************************************************************************************************
+             -************/
+  20          /******************************************************************************
+  21          函数名：PWM_init
+  22          功能描述：PWM功能初始化
+  23          输入参数: pwm_ch                PWM通道选择
+  24                                                  AlignMod        对齐模式设置
+  25                                                  cks                             PWM时钟源设置（只有PWM0,2,4,6才有此项设置）
+  26                                                  toggle          PWM是否反相输出设置
+  27                                                  Prescal         PWM时钟分频设置
+  28                                                  Comp                    PWM互补输出设置（只有PWM1,3,5,7才有此项设置）
+  29          返回值： 无                                     
+  30          
+  31          ******************************************************************************/
+  32          void PWM_init(PWM_Channel_TypeDef pwm_ch,
+  33                                                                  PWM_AlignMod_TypeDef AlignMod,
+  34                                                                  PWM_CKS_TypeDef cks,
+  35                                                                  PWM_Toggle_TypeDef toggle,
+  36                                                                  unsigned char Prescal,
+  37                                                                  PWM_Complementary_TypeDef Comp)
+  38          {
+  39   1              INDEX = pwm_ch;
+  40   1              if(pwm_ch & 0x01)       //PWM1,PWM3,PWM5,PWM7
+  41   1              {
+  42   2                      PWMCON = (PWMCON&0xF0) | MS(AlignMod) | MOD(Comp);
+  43   2                      PWMCFG = TOG(toggle) | Prescal;         
+  44   2              }
+  45   1              else                                                    //PWM0,PWM2,PWM4,PWM6
+  46   1              {
+  47   2                      PWMCON = (PWMCON&0xF0) | MS(AlignMod) | CKS(cks);
+  48   2                      PWMCFG = TOG(toggle) | Prescal;         
+  49   2              }
+  50   1      }
+  51          
+  52          
+C51 COMPILER V9.01   PWM                                                                   07/28/2019 16:38:42 PAGE 2   
+
+  53          /******************************************************************************
+  54          函数名：        PWM_CfgDivDuty
+  55          功能描述：设置PWM周期和占空比
+  56          输入参数: pwm_ch                PWM通道选择
+  57                                                  DIV                             PWM周期设置
+  58                                                  DUT                             PWM占空比设置
+  59          返回值：  无                                    
+  60          ******************************************************************************/
+  61          void PWM_CfgDivDuty(PWM_Channel_TypeDef pwm_ch,unsigned int DIV,unsigned int DUT)
+  62          {
+  63   1              INDEX = pwm_ch;
+  64   1              PWMDIVH = (unsigned char)(DIV>>8);
+  65   1              PWMDIVL = (unsigned char)(DIV);
+  66   1              PWMDUTH = (unsigned char)(DUT>>8);
+  67   1              PWMDUTL = (unsigned char)(DUT); 
+  68   1      }
+  69          
+  70          /******************************************************************************
+  71          函数名：        PWM_Update
+  72          功能描述：PWM寄存器更新
+  73          输入参数: PWMCH_Bits    
+  74          返回值：  无                                    
+  75          ******************************************************************************/
+  76          void PWM_Update(unsigned char PWMCH_Bits)
+  77          {
+  78   1              PWMUPD = PWMCH_Bits;
+  79   1      }
+  80          
+  81          /******************************************************************************
+  82          函数名：        WaitPWMUpdateComplete
+  83          功能描述：等待PWM配置值更新到实际寄存器
+  84          输入参数: 无    
+  85          返回值：  无                                    
+  86          ******************************************************************************/
+  87          void WaitPWMUpdateComplete(void)
+  88          {
+  89   1              while(PWMUPD);
+  90   1      }
+  91          
+  92          /******************************************************************************
+  93          函数名：        PWM_EnContrl
+  94          功能描述：PWM使能
+  95          输入参数: PWMEn_Bits    ，每一位对应PWM的一个通道
+  96          返回值：  无                                    
+  97          ******************************************************************************/
+  98          //void PWM_EnContrl(unsigned char PWMEn_Bits)
+  99          //{
+ 100          //      PWMEN = PWMEn_Bits;
+ 101          //}
+ 102          
+ 103          
+ 104          /******************************************************************************
+ 105          函数名：        PWM_InterruptCfg
+ 106          功能描述：设置PWM周期和占空比
+ 107          输入参数: pwm_ch                PWM通道选择
+ 108                                                  tie                             PWM顶点中断设置
+ 109                                                  zie                             PWM零点中断设置
+ 110                                                  pie                             PWM上升沿中断
+ 111                                                  nie                             PWM下升沿中断
+ 112                                                  pwmcmax         寄存器PWMCMAX设置值，表示多少个PWM周期产生一次PWM中断
+ 113          返回值：  无                                    
+ 114          ******************************************************************************/
+C51 COMPILER V9.01   PWM                                                                   07/28/2019 16:38:42 PAGE 3   
+
+ 115          void PWM_InterruptCfg(PWM_Channel_TypeDef pwm_ch,
+ 116                                                                                                  PWM_TIE_TypeDef tie,
+ 117                                                                                                  PWM_ZIE_TypeDef zie,
+ 118                                                                                                  PWM_PIE_TypeDef pie,
+ 119                                                                                                  PWM_NIE_TypeDef nie,
+ 120                                                                                                  unsigned char pwmcmax
+ 121                                                                                                  )
+ 122          {
+ 123   1              INDEX = pwm_ch;
+ 124   1              PWMCON = (PWMCON&0x0F) | TIE(tie) | ZIE(zie) | PIE(pie) | NIE(nie);
+ 125   1              PWMCMAX = pwmcmax;
+ 126   1      }
+ 127          
+ 128          
+ 129          
+ 130          /*
+ 131          void PWM_init_Set(void)
+ 132          {
+ 133                  //PWM_init(PWM_CH0,Center_Align,CKS_IH,Toggle_On,0,Complementary_Off);
+ 134                  PWM_init(PWM_CH1,Center_Align,CKS_IH,Toggle_On,0,Complementary_On);
+ 135          
+ 136                  //PWM_init(PWM_CH4,Center_Align,CKS_IH,Toggle_On,0,Complementary_Off);
+ 137                  //PWM_init(PWM_CH5,Center_Align,CKS_IH,Toggle_On,0,Complementary_On);   
+ 138                  
+ 139                  
+ 140                          PWM_CfgDivDuty(PWM_CH1,600,300);
+ 141                          PWM_Update(1<<PWM_CH1);
+ 142                          WaitPWMUpdateComplete();
+ 143                          PWMEN |= (1<<PWM_CH1);
+ 144                  
+ 145          //      PWM_CfgDivDuty(PWM_CH0,600,300);
+ 146          //      PWM_Update((1<<PWM_CH0)|(1<<PWM_CH1));
+ 147          //      WaitPWMUpdateComplete();
+ 148          //      PWMEN |= ((1<<PWM_CH0)|(1<<PWM_CH1));
+ 149          
+ 150          
+ 151          //      PWM_CfgDivDuty(PWM_CH4,1843,922);
+ 152                  //PWM_CfgDivDuty(PWM_CH4,922,461);
+ 153          //      PWM_Update((1<<PWM_CH4)|(1<<PWM_CH5));
+ 154          //      WaitPWMUpdateComplete();
+ 155          //      PWMEN |= ((1<<PWM_CH4)|(1<<PWM_CH5));
+ 156          
+ 157          
+ 158                  
+ 159          //      PWM_InterruptCfg(PWM_CH4,TIE_Off,ZIE_Off,PIE_On,NIE_Off,25);
+ 160                  //PWM_InterruptCfg(PWM_CH4,TIE_On,ZIE_Off,PIE_Off,NIE_Off,25);
+ 161          //      INT9EN =1;
+ 162          
+ 163          }       
+ 164          */
+ 165          
+ 166          
+ 167          
+ 168          
+ 169          #endif
+*** WARNING C312 IN LINE 169 OF ..\..\Library\Sources\pwm.c: misplaced endif control
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    129    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+C51 COMPILER V9.01   PWM                                                                   07/28/2019 16:38:42 PAGE 4   
+
+   PDATA SIZE       =   ----      12
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

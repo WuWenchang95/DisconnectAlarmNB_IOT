@@ -1,0 +1,346 @@
+C51 COMPILER V9.01   WIREALARM                                                             07/28/2019 16:49:05 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE WIREALARM
+OBJECT MODULE PLACED IN .\hex\Wirealarm.obj
+COMPILER INVOKED BY: D:\keil\C51\BIN\C51.EXE ..\Wirealarm\Wirealarm.c COMPACT ROM(COMPACT) OPTIMIZE(9,SIZE) BROWSE DEBUG
+                    - OBJECTEXTEND PRINT(.\lst\Wirealarm.lst) OBJECT(.\hex\Wirealarm.obj)
+
+line level    source
+
+   1          #ifndef _WIRE_ALARM_C_
+   2          #define _WIRE_ALARM_C_
+   3          
+   4          #include "ca51f_config.h"
+   5          #if (IC_TYPE == IC_TYPE_CA51F2X)
+              #include "../../includes/ca51f2sfr.h"
+              #include "../../includes/ca51f2xsfr.h"
+              #include "../../includes/gpiodef_f2.h"
+              #elif (IC_TYPE == IC_TYPE_CA51F3X)
+  10          #include "../../includes/ca51f3sfr.h"
+  11          #include "../../includes/ca51f3xsfr.h"
+  12          #include "../../includes/gpiodef_f3.h"
+  13          #endif
+  14          #include "../../includes/system.h"
+  15          #include "../../Library/includes/uart.h"
+  16          #include "../../Library/includes/delay.h"
+  17          #include "../../Library/includes/exint.h"
+  18          #include "../../Library/includes/rtc.h"
+  19          
+  20          #include <intrins.h>
+  21          #include "main.h"
+  22          //#include "../drive/Include/key.h"
+  23          //#include "../drive/Include/buzzer.h"
+  24          #include "../Wirealarm/Wirealarm.h"
+  25          #include "../../Library/includes/pwm.h"
+  26          #include "../NB_iot/Nb_iot.h"
+  27          
+  28          
+  29          sAlarmDri tAlarmDri = {0,0};
+  30          
+  31          
+  32          /**************************************************************
+  33          **函数名称：AlarmGPIOInit
+  34          **函数描述：警报器,检测线 IO初始化   
+  35          **入口参数：无
+  36          **出口参数：无
+  37          ***************************************************************/
+  38          void AlarmGPIOInit(void)
+  39          {
+  40   1              GPIO_Init(WIRE_IO,INPUT|PU_EN);
+  41   1      //      GPIO_Init(ALARM_IO,OUTPUT|PU_EN);
+  42   1      //      ALARM_OUT =0;
+  43   1      }
+  44          
+  45          /**************************************************************
+  46          **函数名称：AlarmWireCleck
+  47          **函数描述：检测线检测并报警  
+  48          **入口参数：无
+  49          **出口参数：无
+  50          ***************************************************************/
+  51          void AlarmWireCleck(void)
+  52          {
+  53   1              if(WIRE_IN == 1)
+  54   1              {
+C51 COMPILER V9.01   WIREALARM                                                             07/28/2019 16:49:05 PAGE 2   
+
+  55   2                      if(tAlarmDri.cnt < 100)
+  56   2                      {
+  57   3                              tAlarmDri.cnt++;
+  58   3                              if(tAlarmDri.cnt >= 99)
+  59   3                              {
+  60   4                                      if(tAlarmDri.alarmFlag == 0)
+  61   4                                      {
+  62   5                                              tAlarmDri.alarmFlag = 1;
+  63   5                                              SetSendAlarmDataToCloud(DISCONNECT_WIRE);                               
+  64   5                                      }
+  65   4                              }
+  66   3                      }
+  67   2              }
+  68   1              else if(WIRE_IN == 0)
+  69   1              {
+  70   2                      if(tAlarmDri.cnt > 0)
+  71   2                      {
+  72   3                              tAlarmDri.cnt--;
+  73   3                              if(tAlarmDri.cnt == 0)
+  74   3                              {
+  75   4                                      if(tAlarmDri.alarmFlag == 1)
+  76   4                                      {
+  77   5                                              tAlarmDri.alarmFlag = 0;                                
+  78   5                                      }                               
+  79   4                              }
+  80   3                      }               
+  81   2              }
+  82   1              
+  83   1              if(tAlarmDri.alarmFlag)
+  84   1              {
+  85   2      
+  86   2                      //ALARM_OFF;
+  87   2      
+  88   2                      tAlarmDri.tcnt ++;
+  89   2                      #if 1
+  90   2                      if(tAlarmDri.tcnt%10 == 0)
+  91   2                      {
+  92   3                              if(tAlarmDri.forwardFg)
+  93   3                              {
+  94   4                                      tAlarmDri.frp += 10;
+  95   4                                      if(tAlarmDri.frp >= 15000)
+  96   4                                      {
+  97   5                                              tAlarmDri.forwardFg = 0;
+  98   5                                              tAlarmDri.tcnt = 0;
+  99   5                                      }
+ 100   4                              }
+ 101   3                              else
+ 102   3                              {
+ 103   4                                      tAlarmDri.frp -= 10;
+ 104   4                                      if(tAlarmDri.frp <= 5000)
+ 105   4                                      {
+ 106   5                                              tAlarmDri.forwardFg = 1;
+ 107   5                                              tAlarmDri.tcnt = 0;
+ 108   5                                      }
+ 109   4                              }
+ 110   3      
+ 111   3                              PWM_CfgDivDuty(PWM_CH2,FOSC/tAlarmDri.frp,FOSC/(tAlarmDri.frp*2-3500));
+ 112   3                              PWM_Update(1<<PWM_CH2);
+ 113   3                              WaitPWMUpdateComplete();
+ 114   3      
+ 115   3                      }
+ 116   2      
+C51 COMPILER V9.01   WIREALARM                                                             07/28/2019 16:49:05 PAGE 3   
+
+ 117   2                      #else
+                              
+                              if(tAlarmDri.tcnt == 1000) 
+                              {
+                                      PWM_CfgDivDuty(PWM_CH2,FOSC/5000,FOSC/8000);
+                                      PWM_Update(1<<PWM_CH2);
+                                      WaitPWMUpdateComplete();
+                              }
+                              else if(tAlarmDri.tcnt == 2000)
+                              {
+                                      tAlarmDri.tcnt = 0;
+                                      PWM_CfgDivDuty(PWM_CH2,1084,542);
+                                      PWM_Update(1<<PWM_CH2);
+                                      WaitPWMUpdateComplete();
+                              }
+                              #endif
+ 133   2                      
+ 134   2                      //ALARM_OUT = 1;   //打开报警器
+ 135   2                      ALARM_ON;       
+ 136   2              }
+ 137   1              else
+ 138   1              {
+ 139   2                      //ALARM_OUT = 0;   //关闭报警器
+ 140   2                      ALARM_OFF;              
+ 141   2              }
+ 142   1      
+ 143   1      }
+ 144          #if 0
+              
+              /**************************************************************
+              **函数名称：INT0Init
+              **函数描述：外部0中初始化   
+              **入口参数：isStart      是否开启中断          1开启   0关闭
+              **出口参数：无
+              ***************************************************************/
+              void INT0Init(uint8_t     isStart)      //开机
+              {
+              
+                      if(isStart)
+                      {
+                              P17F = INPUT;   //设置P36为输入引脚
+                              IT0CON = 15; //P36中断编号为31
+                              EX0 =1;         //INT0中断使能
+                              IE0 =1;         //外部中断使能
+                              //IT0 = 1;               //设置为上降沿中断
+                      }
+                      else
+                      {
+                              EX0 =0;         //INT0中断失能
+                              IE0 =0;         //外部中断失能
+                      }
+              
+                      IT0 =1;
+                      PX0 =1; 
+              
+              }
+              
+              
+              
+              /**************************************************************
+              **函数名称：INT0Zd
+              **函数描述：外部0中断  
+C51 COMPILER V9.01   WIREALARM                                                             07/28/2019 16:49:05 PAGE 4   
+
+              **入口参数：无
+              **出口参数：无
+              ***************************************************************/
+              void INT0Zd(void) interrupt 0
+              {
+                      WDFLG = 0xA5;//刷新看门狗
+                      
+                      EX0 =0;     //INT0中断失能
+                      IE0 =0;     //外部中断失能      
+                      
+                      RTM_Con(RTM_Off);       
+                      INT_Flag = 1;
+              #ifdef PRINT_EN
+                      uart_printf("INT_Flag\r\n");
+              #endif          
+              #if 0
+              
+                      if(WIRE_IN == 1)
+                      {
+                              Delay_ms(80);
+                              if(WIRE_IN == 1)
+                              {
+                                      //ALARM_OUT = 1;   //打开报警器
+                                      ALARM_ON;
+                                      IT0 = 0;                //设置为下降沿中断
+                                      SetSendAlarmDataToCloud(DISCONNECT_WIRE);                       //NB向云端报警
+                                      g_alarmfg = 0;                          
+                              }
+                              
+                      }
+              
+                      else 
+                      {
+                              Delay_ms(80);
+                              if(WIRE_IN == 0)
+                              {
+                                      //ALARM_OUT = 0;   //关闭报警器
+                                      ALARM_OFF;
+                                      IT0 = 1;                 //设置为上升沿中断
+                                      
+              
+                              }
+                      }
+              #endif
+              
+              }       
+              #endif
+ 226          #if 0
+              /**************************************************************
+              **函数名称：EX_INT2_Init
+              **函数描述：外部2中初始化   
+              **入口参数：
+              **出口参数：无
+              ***************************************************************/
+              void EX_INT2_Init(void)
+              {
+                      GPIO_Init(P17F,INPUT);
+                      INDEX = 0;                     //设置EPCON索引号，0~7 对应外部中断 2~9。
+                      EPCON = (0<<7) | P17_INDEX;    //设置为上升沿触发，设置中断引脚索引编号； 如果设置为下降沿中断：EPCON = (
+             -1<<7) | 16;
+                      INT2EN = 1;  
+                      EPIE |= 0x01; 
+C51 COMPILER V9.01   WIREALARM                                                             07/28/2019 16:49:05 PAGE 5   
+
+              }
+              
+              /**************************************************************
+              **函数名称：INT2_ISR
+              **函数描述：外部2中断  
+              **入口参数：无
+              **出口参数：无
+              ***************************************************************/
+              void INT2_ISR (void) interrupt 7
+              {
+                      if(EPIF & 0x01) 
+                      {
+                              EPIF = 0x01; 
+                              RTM_Con(RTM_Off);
+              
+                      }
+              }
+              #endif
+ 258          
+ 259          /**************************************************************
+ 260          **函数名称：EX_INT2_Init
+ 261          **函数描述：外部2中初始化   
+ 262          **入口参数：
+ 263          **出口参数：无
+ 264          ***************************************************************/
+ 265          void EX_INT1_Init(void)
+ 266          {
+ 267   1              GPIO_Init(P17F,INPUT);; //设置 P20 为输入引脚
+ 268   1              IT1CON = P17_INDEX; //选择 P20 作为中断 1 引脚， 16 为 P20 对应的索引编号
+ 269   1              EX1 = 1; //INT1 中断使能
+ 270   1              IE1 = 1; //外部中断 1 使能
+ 271   1              IT1 = 0; //设置为上降沿中断
+ 272   1      }
+ 273          
+ 274          /**************************************************************
+ 275          **函数名称：INT1_ISR
+ 276          **函数描述：外部2中断  
+ 277          **入口参数：无
+ 278          **出口参数：无
+ 279          ***************************************************************/
+ 280          void INT1_ISR (void) interrupt 2
+ 281          {
+ 282   1              //外部中断 1 中断服务程序
+ 283   1              WDFLG = 0xA5;//刷新看门狗
+ 284   1              EX1 =0;     //INT1中断失能
+ 285   1              IE1 =0;    //外部中断失能
+ 286   1              RTM_Con(RTM_Off);
+ 287   1                      
+ 288   1      }
+ 289          
+ 290          
+ 291          /**************************************************************
+ 292          **函数名称：BuzzerInitSet
+ 293          **函数描述：无源蜂鸣器初始化，pwm配置 
+ 294          **入口参数：无
+ 295          **出口参数：无
+ 296          ***************************************************************/
+ 297          void BuzzerInitSet(void)
+ 298          {
+ 299   1              P35F = P35_PWM2_SETTING;
+ 300   1              PWM_init(PWM_CH2,Center_Align,CKS_IH,Toggle_Off,0,Complementary_Off);
+ 301   1      
+C51 COMPILER V9.01   WIREALARM                                                             07/28/2019 16:49:05 PAGE 6   
+
+ 302   1              PWM_CfgDivDuty(PWM_CH2,1084,542);
+ 303   1              PWM_Update(1<<PWM_CH2);
+ 304   1              WaitPWMUpdateComplete();
+ 305   1              //ALARM_ON;
+ 306   1      }       
+ 307          
+ 308          
+ 309          #endif
+*** WARNING C312 IN LINE 309 OF ..\Wirealarm\Wirealarm.c: misplaced endif control
+ 310          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    376    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =      7    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

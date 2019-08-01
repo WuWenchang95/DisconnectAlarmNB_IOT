@@ -1,0 +1,1 @@
+"..\drive\Sources\voltage_adc.c" COMPACT ROM(COMPACT) OPTIMIZE (9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\lst\voltage_adc.lst) OBJECT(.\hex\voltage_adc.obj)

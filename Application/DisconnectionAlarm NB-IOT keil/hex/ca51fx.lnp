@@ -1,0 +1,16 @@
+".\hex\main.obj",
+".\hex\system_clock.obj",
+".\hex\delay.obj",
+".\hex\uart.obj",
+".\hex\Nb_iot.obj",
+".\hex\Wirealarm.obj",
+".\hex\pwm.obj",
+".\hex\stop_idle.obj",
+".\hex\rtc.obj",
+".\hex\voltage_adc.obj",
+".\hex\adc.obj",
+".\hex\STARTUP.obj" 
+TO ".\hex\ca51fx" 
+PRINT(".\lst\ca51fx.m51") RAMSIZE(256) 
+CODE( 0X0000-0X7FFF )
+XDATA( 0X0000-0X0FFF )

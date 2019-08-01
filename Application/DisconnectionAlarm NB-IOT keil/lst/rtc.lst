@@ -1,0 +1,349 @@
+C51 COMPILER V9.01   RTC                                                                   07/28/2019 16:42:13 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE RTC
+OBJECT MODULE PLACED IN .\hex\rtc.obj
+COMPILER INVOKED BY: D:\keil\C51\BIN\C51.EXE ..\..\Library\Sources\rtc.c COMPACT ROM(COMPACT) OPTIMIZE(9,SIZE) BROWSE DE
+                    -BUG OBJECTEXTEND PRINT(.\lst\rtc.lst) OBJECT(.\hex\rtc.obj)
+
+line level    source
+
+   1          #ifndef _RTC_C_
+   2          #define _RTC_C_
+   3          /*********************************************************************************************************
+             -************/
+   4          #include "ca51f_config.h"
+   5          #if (IC_TYPE == IC_TYPE_CA51F2X)
+              #include "../../includes/ca51f2sfr.h"
+              #include "../../includes/ca51f2xsfr.h"
+              #include "../../includes/gpiodef_f2.h"
+              #elif (IC_TYPE == IC_TYPE_CA51F3X)
+  10          #include "../../includes/ca51f3sfr.h"
+  11          #include "../../includes/ca51f3xsfr.h"
+  12          #include "../../includes/gpiodef_f3.h"
+  13          #endif
+  14          #include "../../Library/includes/system_clock.h"
+  15          #include "../../includes/system.h"
+  16          #include "../../Library/includes/rtc.h"
+  17          #include "../../Library/includes/delay.h"
+  18          #include "../drive/Include/voltage_adc.h"
+  19          #include <intrins.h>
+  20          /*********************************************************************************************************
+             -************/
+  21          #define uchar unsigned char
+  22          #define uint  unsigned int
+  23          typedef unsigned char u8_t;
+  24          extern unsigned char SetMode;
+  25          
+  26          code u8_t DAY_MAX[]={0,31,28,31,30,31,30,31,31,30,31,30,31};  //1-12每月的天数
+  27          //时间
+  28          char  last_hour=23;
+  29          char  hour=8;
+  30          char  minute=00;
+  31          char  second=00;
+  32          //日期
+  33          char  year=18;          //2000+year;
+  34          char  month=8;
+  35          char  day=7;
+  36          char  week;
+  37          
+  38          
+  39          
+  40          uchar JudgeDayOfWeek(u8_t _year, u8_t _month, u8_t _day);
+  41          
+  42          void EXINT8_ISR (void) interrupt 13      
+  43          {
+  44   1      
+  45   1              if(EPIF&BIT6)                                   //External interrupt    
+  46   1              {
+  47   2                      EPIF|=BIT3;     
+  48   2              }       
+  49   1      
+  50   1              if(RTCIF & RTC_AF) //闹钟中断
+  51   1              {
+  52   2                      RTCIF |= RTC_AF;
+C51 COMPILER V9.01   RTC                                                                   07/28/2019 16:42:13 PAGE 2   
+
+  53   2                      //闹钟中断服务程序
+  54   2                      RTM_Con(RTM_Off);
+  55   2      
+  56   2                      tVoltageAdc.rtmWakeAdcFg = 1;
+  57   2                      tVoltageAdc.tCnt = 40;
+  58   2                      tVoltageAdc.lowFlag = 0;
+  59   2                      if(tVoltageAdc.publishFg)
+  60   2                      {
+  61   3                              tVoltageAdc.cleckCnt++;
+  62   3                              if(tVoltageAdc.cleckCnt > 5)
+  63   3                              {
+  64   4                                      tVoltageAdc.cleckCnt = 0;
+  65   4                                      tVoltageAdc.publishFg = 0;      
+  66   4                              }
+  67   3                      }
+  68   2      
+  69   2                      
+  70   2              }
+  71   1              
+  72   1      }
+  73          
+  74          
+  75          
+  76          
+  77          
+  78          /***********************************************************************************
+  79          函数名：                RTC_init
+  80          功能说明： 初始化RTC控制寄存器
+  81          输入参数： rtce         RTC功能模块使能控制
+  82                                                          mse             RTC毫秒中断使能控制
+  83                                                          hse             RTC半秒中断使能控制
+  84          返回值：        无
+  85          ***********************************************************************************/                                                                                                                                                                            
+             -                                                
+  86          void RTC_init(RTCE_TypeDef rtce,MSE_TypeDef mse,HSE_TypeDef hse)
+  87          {       
+  88   1      
+  89   1              CKCON |=XLCKE;
+  90   1              while(!(CKCON & XLSTA));
+  91   1              
+  92   1              RTCON = (RTCON & 0x1F) | RTCE(rtce) | MSE(mse) | HSE(hse);
+  93   1      
+  94   1              //INT8EN = 1;
+  95   1              RTC_WriteHour(23);
+  96   1              RTC_WriteMinute(59);
+  97   1              RTC_WriteSecond(30);
+  98   1      
+  99   1              RTCS    =       30;
+ 100   1              RTCM    =       59;
+ 101   1              RTCH    =       23;     
+ 102   1              
+ 103   1              week=JudgeDayOfWeek(year,month,day);
+ 104   1              
+ 105   1      }
+ 106          
+ 107          //例如，设置闹钟时间为11:30:0，时、分、秒比较全使能，程序如下：
+ 108          //----------------------------------------------------------------------------------------
+ 109          
+ 110          void RTM_init(unsigned char _hour, unsigned char _minute, unsigned char _sec)
+ 111          {
+ 112   1              RTAH = _hour; //设置闹钟小时
+ 113   1              RTAM = _minute; //设置闹钟分
+C51 COMPILER V9.01   RTC                                                                   07/28/2019 16:42:13 PAGE 3   
+
+ 114   1              RTAS = _sec; //设置闹钟秒
+ 115   1      
+ 116   1      }
+ 117          
+ 118          void RTM_Con(RTM_TypeDef rtm)
+ 119          {
+ 120   1              if(rtm != RTM_On)
+ 121   1              {
+ 122   2                      RTCON |= SCE(SCE_Off)|MCE(MCE_Off)|HCE(HCE_Off); //时、分、秒比较使能
+ 123   2                      INT8EN = 0;
+ 124   2              }       
+ 125   1              else
+ 126   1              {
+ 127   2                      //RTCON |= SCE(SCE_On)|MCE(MCE_On)|HCE(HCE_Off);        
+ 128   2                      RTCON |= SCE(SCE_On)|MCE(MCE_On)|HCE(HCE_On); //时、分、秒比较使能
+ 129   2                      INT8EN = 1;             
+ 130   2              }       
+ 131   1      }
+ 132          /***********************************************************************************
+ 133          函数名：                RTC_WriteSecond
+ 134          功能说明： RTC写入秒值
+ 135          输入参数： second               秒值
+ 136          返回值：                无
+ 137          ***********************************************************************************/    
+ 138          void RTC_WriteSecond(unsigned char second) //second = 0~59
+ 139          {
+ 140   1              RTCON |= RTCWE(1);
+ 141   1              RTCS = second;
+ 142   1              Delay_50us(100);
+ 143   1              RTCON &= ~RTCWE(1);             
+ 144   1      }
+ 145          
+ 146          /***********************************************************************************
+ 147          函数名：                RTC_WriteMinute
+ 148          功能说明： RTC写入分值
+ 149          输入参数： minute               分值
+ 150          返回值：                无
+ 151          ***********************************************************************************/    
+ 152          void RTC_WriteMinute(unsigned char minute) //minute = 0~59
+ 153          {
+ 154   1              RTCON |= RTCWE(1);
+ 155   1              RTCM = minute;
+ 156   1              Delay_50us(100);
+ 157   1              RTCON &= ~RTCWE(1);
+ 158   1              
+ 159   1              RTCON |= RTCWE(1);
+ 160   1              RTCM = minute;
+ 161   1              Delay_50us(100);
+ 162   1              RTCON &= ~RTCWE(1);     
+ 163   1              
+ 164   1      }
+ 165          
+ 166          
+ 167          /***********************************************************************************
+ 168          函数名：                RTC_WriteHour
+ 169          功能说明： RTC写入小时
+ 170          输入参数： hour         小时值
+ 171          返回值：                无
+ 172          ***********************************************************************************/
+ 173          void RTC_WriteHour(unsigned char hour)  //hour = 0~23
+ 174          {
+ 175   1              RTCON |= RTCWE(1);
+C51 COMPILER V9.01   RTC                                                                   07/28/2019 16:42:13 PAGE 4   
+
+ 176   1              RTCH = (RTCH&0xE0)|hour;
+ 177   1              Delay_50us(100);
+ 178   1              RTCON &= ~RTCWE(1);             
+ 179   1              
+ 180   1              RTCON |= RTCWE(1);
+ 181   1              RTCH = (RTCH&0xE0)|hour;
+ 182   1              Delay_50us(100);
+ 183   1              RTCON &= ~RTCWE(1);             
+ 184   1      
+ 185   1      }
+ 186          
+ 187          
+ 188          #if 1
+ 189          bit JudgeIsLeapYear(u8_t _year)                         //判断是否闰年
+ 190          {
+ 191   1         if((_year+2000)%4==0)        //2001--2099
+ 192   1         {
+ 193   2                      return 1;
+ 194   2         }
+ 195   1         return 0;
+ 196   1      }
+ 197          uchar GetDayMax(u8_t _year,u8_t _month)         //获取每月的天数
+ 198          {
+ 199   1              if((_month==2)&&(JudgeIsLeapYear(_year)))               //闰年2月份29天
+ 200   1              {
+ 201   2                 return ((DAY_MAX[_month])+1);
+ 202   2              }
+ 203   1              return (DAY_MAX[_month]);
+ 204   1      }
+ 205          uchar JudgeDayOfWeek(u8_t _year, u8_t _month, u8_t _day)                //获取星期几
+ 206          {  
+ 207   1              u8_t week_temp;
+ 208   1              u8_t c=20;
+ 209   1              if(_month<=2)
+ 210   1              {
+ 211   2                      if((_year%100) == 0)
+ 212   2                              c--;
+ 213   2                      _year--;
+ 214   2                      _month+=12;
+ 215   2              }
+ 216   1              week_temp=(_year+(u8_t)(_year/4)+(u8_t)(c/4)-(2*c)+(u8_t)((26*(_month+1))/10)+_day-1-1+2500)%7;
+ 217   1              if(week_temp)
+ 218   1              {
+ 219   2                 return week_temp;
+ 220   2              }
+ 221   1              return 7;
+ 222   1      }
+ 223          
+ 224          void _date_add(void)                                            //每天累加计算日期（年，月，日，星期几）
+ 225          {
+ 226   1              last_hour=hour;
+ 227   1              if(hour==0)
+ 228   1              {
+ 229   2                      day++;
+ 230   2                      if(day>GetDayMax(year,month))
+ 231   2                      {
+ 232   3                         month++;
+ 233   3                         day=1;
+ 234   3                         if(month>12)
+ 235   3                         {
+ 236   4                                month=1;
+ 237   4                                year++;
+C51 COMPILER V9.01   RTC                                                                   07/28/2019 16:42:13 PAGE 5   
+
+ 238   4                                if(year>99) year=00;
+ 239   4                         }
+ 240   3                      }
+ 241   2                      week=JudgeDayOfWeek(year,month,day);
+ 242   2              }
+ 243   1      }
+ 244          #endif
+ 245          void RTC_ReadTime(void)                                         //读取最终的当前时间结果
+ 246          {       
+ 247   1              second = RTCS;
+ 248   1      
+ 249   1              minute = RTCM;
+ 250   1      
+ 251   1              hour = RTCH&0x1f;
+ 252   1      
+ 253   1              if(last_hour!=hour)     _date_add();
+ 254   1      }
+ 255          
+ 256          ///***********************************************************************************
+ 257          //函数名：              RTC_WriteWeek
+ 258          //功能说明： RTC写入星期
+ 259          //输入参数： week               星期值
+ 260          //返回值：              无
+ 261          //***********************************************************************************/
+ 262          //void RTC_WriteWeek(unsigned char week) //hour = 1~7代表星期一~星期天
+ 263          //{
+ 264          //      RTCON |= RTCWE(1);
+ 265          //      RTCH = (RTCH&0x1F)|(week<<5);
+ 266          //      Delay_50us(1);
+ 267          //      RTCON &= ~RTCWE(1);             
+ 268          //}
+ 269          
+ 270          
+ 271          ///***********************************************************************************
+ 272          //函数名：              RTC_AlarmCfg
+ 273          //功能说明： 配置RTC ALARM功能寄存器位
+ 274          //输入参数： hce                小时比较使能控制
+ 275          //                                              mce             分钟比较使能控制
+ 276          //                                              sce             秒比较使能控制
+ 277          //返回值：              无
+ 278          //***********************************************************************************/
+ 279          //void RTC_AlarmCfg(HCE_TypeDef hce,MCE_TypeDef mce,SCE_TypeDef sce)
+ 280          //{     
+ 281          //      RTCON = (RTCON & 0xE3) | HCE(hce) | MCE(mce) | SCE(sce);
+ 282          //}
+ 283          
+ 284          ///***********************************************************************************
+ 285          //函数名：              RTC_SetAlaramTime
+ 286          //功能说明：  设置RTC ALARM时间
+ 287          //输入参数：  al_hr             闹钟小时值
+ 288          //                                              al_min          闹钟分钟值
+ 289          //                                              al_sec          闹钟秒值
+ 290          //返回值：              无
+ 291          //***********************************************************************************/
+ 292          //void RTC_SetAlaramTime(unsigned char al_hr,unsigned char al_min,unsigned char al_sec)
+ 293          //{
+ 294          //      RTAH    =       al_hr;
+ 295          //      RTAM    =       al_min;
+ 296          //      RTAS    =       al_sec;
+ 297          //}
+ 298          
+ 299          ///***********************************************************************************
+C51 COMPILER V9.01   RTC                                                                   07/28/2019 16:42:13 PAGE 6   
+
+ 300          //函数名：              RTC_SetRTMSS
+ 301          //功能说明：  设置毫秒中断间隔
+ 302          //输入参数：  rtmss             
+ 303          //返回值：              无
+ 304          //***********************************************************************************/
+ 305          //void RTC_SetRTMSS(unsigned char rtmss)
+ 306          //{
+ 307          //      RTMSS = rtmss;
+ 308          //}
+ 309          
+ 310          ///*******************************************************************************************************
+             -**************/
+ 311          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    596    ----
+   CONSTANT SIZE    =     13    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =      8       3
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

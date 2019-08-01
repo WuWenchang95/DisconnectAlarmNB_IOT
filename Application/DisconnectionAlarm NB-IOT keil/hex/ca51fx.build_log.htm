@@ -1,0 +1,61 @@
+<html>
+<body>
+<pre>
+<h1>µVision Build Log</h1>
+<h2>Tool Versions:</h2>
+IDE-Version: ¦ÌVision V5.14.2
+Copyright (C) 2015 ARM Ltd and ARM Germany GmbH. All rights reserved.
+License Information: we AutoBVT, Microsoft, LIC=SDJWF-68EBL-HWF2Q-N04VG-EIBFC-G55JV
+ 
+Tool Versions:
+Toolchain:       PK51 Prof. Developers Kit  Version: 9.54
+Toolchain Path:  C:\Keil_v5_51\C51\BIN
+C Compiler:      C51.exe V9.54
+Assembler:       A51.exe V8.02c
+Linker/Locator:  BL51.exe V6.22
+Library Manager: LIB51.exe V4.30.1.0
+Hex Converter:   OH51.exe V2.7.0.0
+CPU DLL:         S8051.DLL V3.100.0.0
+Dialog DLL:      DCore51.DLL V2.81.4.0 
+<h2>Project:</h2>
+C:\Users\Administrator\Desktop\DisconnectionAlarm NB-IOT-190726-1(vol_adc)\Application\DisconnectionAlarm NB-IOT keil\DisconnectionAlarm NB-IOT.uvproj
+Project File Date:  07/25/2019
+
+<h2>Output:</h2>
+*** Note: Rebuilding project, since 'Options->Output->Create Batch File' is selected.
+Rebuild target 'CA51FX'
+compiling main.c...
+main.c(371): warning C312: misplaced endif control
+compiling system_clock.c...
+compiling delay.c...
+compiling uart.c...
+..\..\Library\Sources\uart.c(349): warning C312: misplaced endif control
+compiling Nb_iot.c...
+..\NB_iot\Nb_iot.c(1439): warning C312: misplaced endif control
+compiling Wirealarm.c...
+..\Wirealarm\Wirealarm.c(309): warning C312: misplaced endif control
+compiling pwm.c...
+..\..\Library\Sources\pwm.c(169): warning C312: misplaced endif control
+compiling stop_idle.c...
+compiling rtc.c...
+compiling voltage_adc.c...
+..\drive\Sources\voltage_adc.c(201): warning C312: misplaced endif control
+compiling adc.c...
+assembling STARTUP.A51...
+linking...
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?GETPROCLOCKTICK?MAIN
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?SYS_CLK_SET_IRCH?SYSTEM_CLOCK
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_DELAY_500MS?DELAY
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_PWM_INTERRUPTCFG?PWM
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?RTC_READTIME?RTC
+Program Size: data=71.6 xdata=1011 code=10749
+creating hex file from ".\hex\ca51fx"...
+".\hex\ca51fx" - 0 Error(s), 11 Warning(s).
+</pre>
+</body>
+</html>

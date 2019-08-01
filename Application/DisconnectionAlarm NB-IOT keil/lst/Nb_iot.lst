@@ -1,0 +1,1513 @@
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE NB_IOT
+OBJECT MODULE PLACED IN .\hex\Nb_iot.obj
+COMPILER INVOKED BY: D:\keil\C51\BIN\C51.EXE ..\NB_iot\Nb_iot.c COMPACT ROM(COMPACT) OPTIMIZE(9,SIZE) BROWSE DEBUG OBJEC
+                    -TEXTEND PRINT(.\lst\Nb_iot.lst) OBJECT(.\hex\Nb_iot.obj)
+
+line level    source
+
+   1          #ifndef _NB_IOT_C_
+   2          #define _NB_IOT_C_
+   3          
+   4          #include "ca51f_config.h"
+   5          #if (IC_TYPE == IC_TYPE_CA51F2X)
+              #include "../../includes/ca51f2sfr.h"
+              #include "../../includes/ca51f2xsfr.h"
+              #include "../../includes/gpiodef_f2.h"
+              #elif (IC_TYPE == IC_TYPE_CA51F3X)
+  10          #include "../../includes/ca51f3sfr.h"
+  11          #include "../../includes/ca51f3xsfr.h"
+  12          #include "../../includes/gpiodef_f3.h"
+  13          #endif
+  14          #include "../../includes/system.h"
+  15          #include "../../Library/includes/uart.h"
+  16          #include "../../Library/includes/delay.h"
+  17          #include <intrins.h>
+  18          #include "main.h"
+  19          //#include "../drive/Include/key.h"
+  20          //#include "../drive/Include/buzzer.h"
+  21          #include "../NB_iot/Nb_iot.h"
+  22          #include "../Wirealarm/Wirealarm.h"
+  23          #include "../drive/Include/voltage_adc.h"
+  24          
+  25          #include <string.h>
+  26          #include <stdlib.h>
+  27          #include <stdio.h>
+  28          
+  29          
+  30          
+  31          
+  32          sNbiotDev idata NbiotDev = {NB_DEV_RESET,0,0,0,0,{0},{0},{0},0,0};
+  33          sPublishSt tPublishSt = {0};
+  34          
+  35          char code alarm_str[][16] = {
+  36                                                          "DISCONNECT_WIRE\0",
+  37                                                          "LOW_BATTERY\0",        
+  38                                                    };
+  39          
+  40          
+  41          /**************************************************************
+  42          **函数名称：NB73Init
+  43          **函数描述：NB模块io的初始化
+  44          **入口参数：
+  45          **出口参数：
+  46          ***************************************************************/
+  47          void NB73Init(void)
+  48          {
+  49   1              GPIO_Init(NB_RESET_IO,OUTPUT);
+  50   1              
+  51   1              GPIO_Init(SW_NB_IO,OUTPUT);
+  52   1              SW_NB = 1;
+  53   1      }
+  54          
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 2   
+
+  55          
+  56          /**************************************************************
+  57          **函数名称：AsciiToHex
+  58          **函数描述：Ascii字符串转HEX字符串
+  59          **入口参数：pnum：源数据
+  60                                  size：大小
+  61                                  des_str转换后的数据
+  62          **出口参数：
+  63          ***************************************************************/
+  64          void AsciiToHex(uint8_t *sou_str,uint8_t size,uint8_t *des_str) 
+  65          {
+  66   1              /*索引表*/
+  67   1              const char index[]="0123456789ABCDEF";
+  68   1              uint8_t i;
+  69   1              for(i=0;i<size;i++)
+  70   1              {
+  71   2                      des_str[2*i]   = index[(sou_str[i] >>4)];
+  72   2                      des_str[2*i+1] = index[(sou_str[i] &0x0f)];
+  73   2              }
+  74   1      }
+  75          
+  76          
+  77          /**************************************************************
+  78          **函数名称：SendDataToNB
+  79          **函数描述：向NB发送指令
+  80          **入口参数：Sendstr：要发送的字符串
+  81          **出口参数：
+  82          ***************************************************************/
+  83          void SendDataToNB(uint8_t *Sendstr)
+  84          {
+  85   1              while(*Sendstr)
+  86   1              {       
+  87   2                Uart1_PutChar(*Sendstr++);
+  88   2      
+  89   2                //S1BUF=*Sendstr++; 
+  90   2                //while(!(S1CON & BIT1));
+  91   2                //S1CON = (S1CON&~(BIT0|BIT1))|BIT1;
+  92   2              }
+  93   1      
+  94   1      }
+  95          
+  96          /**************************************************************
+  97          **函数名称：NBTickClk
+  98          **函数描述：定时器1中断中执行、1ms中断 刷新NBiot工程计时
+  99          **入口参数：无
+ 100          **出口参数：无
+ 101          ***************************************************************/
+ 102          void NBTickClk(void)
+ 103          {
+ 104   1              NbiotDev.NBTimerClk++;
+ 105   1      }
+ 106          /**************************************************************
+ 107          **函数名称：ResetNBTickClk
+ 108          **函数描述：nb 时钟清零
+ 109          **入口参数：无
+ 110          **出口参数：无
+ 111          ***************************************************************/
+ 112          void ResetNBTickClk(void)
+ 113          {
+ 114   1              NbiotDev.NBTimerClk = 0;
+ 115   1      }
+ 116          
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 3   
+
+ 117          /**************************************************************
+ 118          **函数名称：NB_ATRecPro
+ 119          **函数描述：处理 NB AT指令回复的结果
+ 120          **入口参数：Recstr：要接受的字符串
+ 121          **出口参数：reATStatus
+ 122          ***************************************************************/
+ 123          reATStatus NB_ATRecPro(uint8_t *Recstr)
+ 124          {
+ 125   1              reATStatus rATStatus = NO_REC;
+ 126   1                      
+ 127   1              if(!uart1_rx_finish_flag)
+ 128   1                      return  rATStatus;
+ 129   1              
+ 130   1              if(strstr((const char*)uart1_rx_buf,"ERROR") != NULL)
+ 131   1              {
+ 132   2                      rATStatus = ERR_REC;
+ 133   2              }
+ 134   1              else if(strstr((const char*)uart1_rx_buf,Recstr) != NULL)
+ 135   1              {
+ 136   2      #ifdef PRINT_EN 
+ 137   2                      //uart_printf("%s\r\n",uart1_rx_buf);
+ 138   2      #endif  
+ 139   2                      
+ 140   2                                      
+ 141   2                      rATStatus = SUCCESS_REC;
+ 142   2              }
+ 143   1      
+ 144   1              ResetUART1Rec();
+ 145   1              
+ 146   1              return rATStatus;
+ 147   1      }
+ 148          
+ 149          /**************************************************************
+ 150          **函数名称：AlarmStringPut
+ 151          **函数描述：拼接发送字符串
+ 152          **入口参数：缓冲区
+ 153          **出口参数：返回结果
+ 154          ***************************************************************/
+ 155          uint16_t AlarmStringPut(uint8_t *Sendbuff)
+ 156          {
+ 157   1              uint8_t xdata stbuff[100] = {0};
+ 158   1              uint8_t xdata dtbuff[150] = {0};
+ 159   1              uint16_t len;
+ 160   1              //uint8_t SendAtbuff[150] = {0};
+ 161   1              
+ 162   1              sprintf(stbuff,"{\"CODE\":\"%15s\",\"TYPE\":\"%s\"}\r\n\0",NbiotDev.sN,alarm_str[tPublishSt.alarmTpye[0]]
+             -);
+ 163   1              //sprintf(stbuff,"{\"CODE\":\"%10s\",\"TYPE\":\"%s\"}\r\n\0",NbiotDev.sN,alarm_str[tPublishSt.alarmTpye])
+             -;
+ 164   1              //sprintf(stbuff,"{\"CODE\":\"454513213\",\"TYPE\":\"%s\"}\r\n\0",alarm_str[tPublishSt.alarmTpye]);
+ 165   1      
+ 166   1              len = strlen(stbuff);
+ 167   1              
+ 168   1              AsciiToHex(stbuff,len,dtbuff);
+ 169   1              
+ 170   1              sprintf(Sendbuff,"AT+NSOSD=1,%d,%s\r\n\0",len,dtbuff);
+ 171   1              //sprintf(Sendbuff,"AT+NSOSD=1,2,3031\r\n\0",len,dtbuff);
+ 172   1      
+ 173   1              return len;
+ 174   1      }
+ 175          
+ 176          
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 4   
+
+ 177          #define NB_AT_DELAY    80
+ 178          #define NB_TIMER_CLK   500
+ 179          /**************************************************************
+ 180          **函数名称：NB73Tsak
+ 181          **函数描述：NB任务的处理
+ 182          **入口参数：
+ 183          **出口参数：
+ 184          ***************************************************************/
+ 185          void NB73Tsak(void)
+ 186          {
+ 187   1              reATStatus rATStatus = NO_REC;
+ 188   1              
+ 189   1      #if 1
+ 190   1              switch(NbiotDev.step)
+ 191   1              {
+ 192   2                      case NB_DEV_RESET:
+ 193   2                              
+ 194   2                              NB_RESET = 1;
+ 195   2                              Delay_ms(10);
+ 196   2                              NB_RESET = 0;
+ 197   2                              ResetUART1Rec();
+ 198   2                              ResetNBTickClk();
+ 199   2                              
+ 200   2      #ifdef PRINT_EN 
+ 201   2                              uart_printf("NB_RESET1\r\n");
+ 202   2      #endif
+ 203   2      
+ 204   2      
+ 205   2                              while(1)
+ 206   2                              {               
+ 207   3                                      rATStatus = NB_ATRecPro("OK");
+ 208   3                                      if(rATStatus == SUCCESS_REC)
+ 209   3                                      {
+ 210   4                                              NbiotDev.step = NB_AT;
+ 211   4                                              NbiotDev.cmdTxStep = 0;
+ 212   4      #ifdef PRINT_EN 
+ 213   4                                              uart_printf("NB_OK\r\n");
+ 214   4      #endif                                  
+ 215   4                                      }
+ 216   3                                      else if(NbiotDev.NBTimerClk     > 10000)
+ 217   3                                      {
+ 218   4                                      
+ 219   4      #ifdef PRINT_EN 
+ 220   4                                              uart_printf("break\r\n");
+ 221   4      #endif                                  
+ 222   4                                              break;
+ 223   4                                              
+ 224   4                                      }                               
+ 225   3                              }       
+ 226   2      #ifdef PRINT_EN 
+ 227   2                              uart_printf("NB_DEV_RESET\r\n");
+ 228   2      #endif                          
+ 229   2                              break;
+ 230   2                      case NB_AT:
+ 231   2                              {
+ 232   3                                      if(NbiotDev.cmdTxStep == 0)
+ 233   3                                      {
+ 234   4                                              //ResetUART1Rec();
+ 235   4                                              SendDataToNB("AT\r\n\0");
+ 236   4                                              
+ 237   4                                              NbiotDev.cmdTxStep = 1;
+ 238   4                                              ResetNBTickClk();
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 5   
+
+ 239   4      #ifdef PRINT_EN 
+ 240   4                                              uart_printf("NB_AT\r\n");
+ 241   4      #endif                                  
+ 242   4                                      }
+ 243   3                                      else if(NbiotDev.cmdTxStep == 1)
+ 244   3                                      {
+ 245   4                                              rATStatus = NB_ATRecPro("OK");
+ 246   4                                              if(rATStatus == SUCCESS_REC)
+ 247   4                                              {
+ 248   5                                                      NbiotDev.step = NB_AT_CMEE_1;
+ 249   5      
+ 250   5                                                      
+ 251   5                                                      NbiotDev.cmdTxStep = 0;
+ 252   5                                                      NbiotDev.cmdErrCnt = 0;
+ 253   5      #ifdef PRINT_EN 
+ 254   5                                              uart_printf("OK\r\n");
+ 255   5      #endif                                          
+ 256   5                                              Delay_ms(NB_AT_DELAY);
+ 257   5      
+ 258   5                                              }
+ 259   4                                              else if((rATStatus == ERR_REC) ||(NbiotDev.NBTimerClk   > NB_TIMER_CLK))
+ 260   4                                              {
+ 261   5                                                      NbiotDev.cmdErrCnt++;
+ 262   5                                                      NbiotDev.cmdTxStep = 0;
+ 263   5                                                      if(NbiotDev.cmdErrCnt > 3)
+ 264   5                                                      {
+ 265   6                                                              NbiotDev.step = NB_DEV_RESET;
+ 266   6                                                      }
+ 267   5                                                      if(rATStatus == ERR_REC)
+ 268   5                                                      {
+ 269   6                                                              Delay_ms(NB_AT_DELAY);
+ 270   6                                                      }
+ 271   5      
+ 272   5                                              }
+ 273   4                                                                              
+ 274   4                                      }
+ 275   3                              }
+ 276   2                              
+ 277   2                              break;
+ 278   2                      case NB_AT_CMEE_1:
+ 279   2                              {
+ 280   3                                      if(NbiotDev.cmdTxStep == 0)
+ 281   3                                      {
+ 282   4                                              //ResetUART1Rec();
+ 283   4                                              SendDataToNB("AT+CMEE=1\r\n\0");
+ 284   4                                              
+ 285   4                                              NbiotDev.cmdTxStep = 1;
+ 286   4                                              ResetNBTickClk();
+ 287   4      #ifdef PRINT_EN 
+ 288   4                                              uart_printf("AT+CMEE=1\r\n");
+ 289   4      #endif                                  
+ 290   4                                      }
+ 291   3                                      else if(NbiotDev.cmdTxStep == 1)
+ 292   3                                      {
+ 293   4                                              rATStatus = NB_ATRecPro("OK");
+ 294   4                                              if(rATStatus == SUCCESS_REC)
+ 295   4                                              {
+ 296   5                                                      //NbiotDev.step = NB_AT_CGSN_1;
+ 297   5                                                      if(NbiotDev.idFg == 1)
+ 298   5                                                      {
+ 299   6                                                              
+ 300   6                                                              if(tPublishSt.isPublish) 
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 6   
+
+ 301   6                                                              {
+ 302   7                                                                      NbiotDev.step = NB_AT_CFUN_1;
+ 303   7                                                              }
+ 304   6                                                              else
+ 305   6                                                              {
+ 306   7                                                                      NbiotDev.step = NB_NOR_SLEEP;
+ 307   7                                                                      g_sleepFg = 0;  
+ 308   7                                                                      g_sleepCnt = 0;
+ 309   7                                                              }                                                       
+ 310   6                                                      }
+ 311   5                                                      else
+ 312   5                                                      {
+ 313   6                                                              NbiotDev.step = NB_AT_CGSN_1;
+ 314   6                                                      }
+ 315   5                                                      
+ 316   5                                                      NbiotDev.cmdTxStep = 0;
+ 317   5                                                      NbiotDev.cmdErrCnt = 0;
+ 318   5      #ifdef PRINT_EN 
+ 319   5                                              uart_printf("OK\r\n");
+ 320   5      #endif                                          
+ 321   5                                              Delay_ms(NB_AT_DELAY);
+ 322   5      
+ 323   5                                              }
+ 324   4                                              else if((rATStatus == ERR_REC) ||(NbiotDev.NBTimerClk   > NB_TIMER_CLK))
+ 325   4                                              {
+ 326   5                                                      NbiotDev.cmdErrCnt++;
+ 327   5                                                      NbiotDev.cmdTxStep = 0;
+ 328   5                                                      if(NbiotDev.cmdErrCnt > 3)
+ 329   5                                                      {
+ 330   6                                                              NbiotDev.step = NB_DEV_RESET;
+ 331   6                                                      }
+ 332   5                                                      if(rATStatus == ERR_REC)
+ 333   5                                                      {
+ 334   6                                                              Delay_ms(NB_AT_DELAY);
+ 335   6                                                      }
+ 336   5      
+ 337   5                                              }
+ 338   4                                                                              
+ 339   4                                      }
+ 340   3                              }       
+ 341   2                              break;
+ 342   2      
+ 343   2              //      case NB_AT_NBAND:
+ 344   2                              
+ 345   2              //              break;                  
+ 346   2                      case NB_AT_CIMI:     //获取SIM卡号
+ 347   2                              {
+ 348   3                                      if(NbiotDev.cmdTxStep == 0)
+ 349   3                                      {
+ 350   4                                              //ResetUART1Rec();
+ 351   4                                              SendDataToNB("AT+CIMI\r\n\0");   
+ 352   4                                              
+ 353   4                                              NbiotDev.cmdTxStep = 1;
+ 354   4                                              ResetNBTickClk();
+ 355   4      #ifdef PRINT_EN 
+ 356   4                                              uart_printf("AT+CIMI\r\n");
+ 357   4      #endif                                          
+ 358   4                                      }
+ 359   3                                      else if(NbiotDev.cmdTxStep == 1)
+ 360   3                                      {
+ 361   4                                              if(uart1_rx_finish_flag)
+ 362   4                                              {
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 7   
+
+ 363   5                                                      uint8_t i;
+ 364   5                                                      
+ 365   5                                                      uart1_rx_finish_flag = 0;
+ 366   5      
+ 367   5                                                      for(i = 0; i < 20; i++)
+ 368   5                                                      {
+ 369   6                                                              if((uart1_rx_buf[i] >= '0') && (uart1_rx_buf[i] <= '9'))
+ 370   6                                                              {
+ 371   7                                                                      NbiotDev.eSIM[i] = uart1_rx_buf[i];
+ 372   7                                                              }
+ 373   6                                                              else
+ 374   6                                                              {
+ 375   7                                                                      break;
+ 376   7                                                              }
+ 377   6                                                      }
+ 378   5                                                      
+ 379   5                                                      //if(i == 15)
+ 380   5                                                      {
+ 381   6                                                              
+ 382   6                                                              rATStatus = SUCCESS_REC;
+ 383   6                                                              NbiotDev.eSIM[15]  = 0;
+ 384   6                                                              //ResetUART1Rec();
+ 385   6                                                      }
+ 386   5                                                      
+ 387   5                                                      ResetUART1Rec();
+ 388   5                                                      
+ 389   5                                              }
+ 390   4                                              //rATStatus = NB_ATRecPro("OK");
+ 391   4                                              if(rATStatus == SUCCESS_REC)
+ 392   4                                              {
+ 393   5                                                      //NbiotDev.cmdTxStep = 2;
+ 394   5                                                      NbiotDev.step = NB_AT_CGSN_1;
+ 395   5                                                      NbiotDev.cmdTxStep = 0;
+ 396   5                                                      NbiotDev.cmdErrCnt = 0;
+ 397   5      #ifdef PRINT_EN 
+ 398   5                                                      uart_printf("eSIM:%15s\r\n",NbiotDev.eSIM);
+ 399   5      #endif                                                  
+ 400   5                                                      Delay_ms(NB_AT_DELAY);
+ 401   5      
+ 402   5                                              }
+ 403   4                                              else
+ 404   4                                              {
+ 405   5                                                      if(NbiotDev.NBTimerClk  > NB_TIMER_CLK)
+ 406   5                                                      {
+ 407   6                                                              NbiotDev.cmdErrCnt++;
+ 408   6                                                              NbiotDev.cmdTxStep = 0;
+ 409   6                                                              if(NbiotDev.cmdErrCnt > 3)
+ 410   6                                                              {
+ 411   7                                                                      NbiotDev.step = NB_DEV_RESET;
+ 412   7                                                              }
+ 413   6                                                              break;
+ 414   6                                                      }
+ 415   5                                              }                               
+ 416   4                                      }
+ 417   3      #if 0                           
+                                              else if(NbiotDev.cmdTxStep == 2)
+                                              {
+                                                      rATStatus = NB_ATRecPro("OK");
+                                                      if(rATStatus == SUCCESS_REC)
+                                                      {
+                                                              NbiotDev.step = NB_AT_CGSN_1;
+                                                              NbiotDev.cmdTxStep = 0;
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 8   
+
+                                                              NbiotDev.cmdErrCnt = 0;
+              #ifdef PRINT_EN 
+                                                              uart_printf("eSIM:%15s\r\n",NbiotDev.eSIM);
+              #endif                                                  
+                                                              Delay_ms(NB_AT_DELAY);
+              
+                                                      }
+                                                      else
+                                                      {
+                                                              if(NbiotDev.NBTimerClk  > NB_TIMER_CLK)
+                                                              {
+                                                                      NbiotDev.cmdTxStep = 0;
+                                                                      NbiotDev.cmdErrCnt = 0;
+                                                                      NbiotDev.step = NB_AT_CGSN_1;
+                                                                      
+                                                                      break;
+                                                              }
+                                                      }                                                                       
+                                              }
+              #endif                          
+ 445   3                              }
+ 446   2                              break;  
+ 447   2                      case NB_AT_CGSN_1:    //获取IMEI号
+ 448   2                              {  
+ 449   3                                      if(NbiotDev.cmdTxStep == 0)
+ 450   3                                      {
+ 451   4                                              //ResetUART1Rec();
+ 452   4                                              SendDataToNB("AT+CGSN=1\r\n\0");   
+ 453   4                                              NbiotDev.cmdTxStep = 1;
+ 454   4                                              ResetNBTickClk();
+ 455   4      #ifdef PRINT_EN 
+ 456   4                                              uart_printf("AT+CGSN=1\r\n");
+ 457   4      #endif                                  
+ 458   4                                      }
+ 459   3                                      else if(NbiotDev.cmdTxStep == 1)
+ 460   3                                      {
+ 461   4                                              if(uart1_rx_finish_flag)
+ 462   4                                              {
+ 463   5                                                      uint8_t i;
+ 464   5                                                      uint8_t *pt;
+ 465   5                                                      
+ 466   5                                                      pt = strstr(uart1_rx_buf,"+CGSN:");
+ 467   5                                                      //if(!pt)   break;
+ 468   5      
+ 469   5                                                      pt = pt+strlen("+CGSN:");
+ 470   5                                                      
+ 471   5                                                      for(i = 0; i < 20; i++)
+ 472   5                                                      {
+ 473   6                                                              if((pt[i] >= '0') && (pt[i] <= '9'))
+ 474   6                                                              {
+ 475   7                                                                      NbiotDev.iMEI[i] = pt[i];
+ 476   7                                                              }
+ 477   6                                                              else
+ 478   6                                                              {
+ 479   7                                                                      break;
+ 480   7                                                              }
+ 481   6                                                      }
+ 482   5      
+ 483   5                                                      if(i == 15)
+ 484   5                                                      {
+ 485   6                                                              
+ 486   6                                                              rATStatus = SUCCESS_REC;
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 9   
+
+ 487   6                                                              NbiotDev.iMEI[15]  = 0;
+ 488   6                                                              
+ 489   6                                                      }
+ 490   5                                                      
+ 491   5                                                      
+ 492   5                                                      ResetUART1Rec();
+ 493   5      
+ 494   5      
+ 495   5                                              }
+ 496   4                                              //rATStatus = NB_ATRecPro("OK");
+ 497   4                                              if(rATStatus == SUCCESS_REC)
+ 498   4                                              {
+ 499   5                                                      //NbiotDev.cmdTxStep = 2;
+ 500   5                                                      NbiotDev.step = NB_AT_SN;
+ 501   5                                                      NbiotDev.cmdTxStep = 0;
+ 502   5                                                      NbiotDev.cmdErrCnt = 0;
+ 503   5      #ifdef PRINT_EN 
+ 504   5                                                      uart_printf("iMEI:%15s\r\n",NbiotDev.iMEI);
+ 505   5      #endif                                                  
+ 506   5                                                      Delay_ms(NB_AT_DELAY);                                                          
+ 507   5                                              }
+ 508   4                                              else
+ 509   4                                              {
+ 510   5                                                      if(NbiotDev.NBTimerClk  > NB_TIMER_CLK)
+ 511   5                                                      {
+ 512   6                                                              NbiotDev.cmdErrCnt++;
+ 513   6                                                              NbiotDev.cmdTxStep = 0;
+ 514   6                                                              if(NbiotDev.cmdErrCnt > 3)
+ 515   6                                                              {
+ 516   7                                                                      NbiotDev.step = NB_DEV_RESET;
+ 517   7                                                              }
+ 518   6                                                              break;
+ 519   6                                                      }
+ 520   5                                              }                               
+ 521   4                                      }
+ 522   3      #if 0                           
+                                              else if(NbiotDev.cmdTxStep == 2)
+                                              {
+                                                      rATStatus = NB_ATRecPro("OK");
+                                                      if(rATStatus == SUCCESS_REC)
+                                                      {
+                                                              NbiotDev.step = NB_AT_SN;
+                                                              NbiotDev.cmdTxStep = 0;
+                                                              NbiotDev.cmdErrCnt = 0;
+              #ifdef PRINT_EN 
+                                                              uart_printf("iMEI:%15s\r\n",NbiotDev.iMEI);
+              #endif                                                  
+                                                              Delay_ms(NB_AT_DELAY);                                          
+                                                      }
+                                                      else
+                                                      {
+                                                              if(NbiotDev.NBTimerClk  > NB_TIMER_CLK)
+                                                              {
+                                                                      NbiotDev.cmdTxStep = 0;
+                                                                      NbiotDev.cmdErrCnt = 0;
+                                                                      NbiotDev.step = NB_AT_SN;
+                                                                      break;
+                                                              }
+                                                      }                                                                       
+                                              }
+              #endif                          
+ 548   3                              }                       
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 10  
+
+ 549   2                              break;  
+ 550   2                      case NB_AT_SN:
+ 551   2                              {  
+ 552   3                                      if(NbiotDev.cmdTxStep == 0)
+ 553   3                                      {
+ 554   4                                              //ResetUART1Rec();
+ 555   4                                              SendDataToNB("AT+SN\r\n\0");   
+ 556   4                                              
+ 557   4                                              NbiotDev.cmdTxStep = 1;
+ 558   4                                              ResetNBTickClk();
+ 559   4      #ifdef PRINT_EN 
+ 560   4                                              uart_printf("AT+SN\r\n");
+ 561   4      #endif                                          
+ 562   4                                      }
+ 563   3                                      else if(NbiotDev.cmdTxStep == 1)
+ 564   3                                      {
+ 565   4                                              if(uart1_rx_finish_flag)
+ 566   4                                              {
+ 567   5                                                      uint8_t i;
+ 568   5                                                      uint8_t *pt;
+ 569   5                                                      
+ 570   5                                                      pt = strstr(uart1_rx_buf,"+SN:SN");
+ 571   5                                                      //if(!pt)   break;
+ 572   5      
+ 573   5                                                      pt = pt+strlen("+SN:SN");
+ 574   5                                                      
+ 575   5                                                      for(i = 0; i < 20; i++)
+ 576   5                                                      {
+ 577   6                                                              if((pt[i] >= '0') && (pt[i] <= '9'))
+ 578   6                                                              {
+ 579   7                                                                      NbiotDev.sN[i] = pt[i];
+ 580   7                                                              }
+ 581   6                                                              else
+ 582   6                                                              {
+ 583   7                                                                      break;
+ 584   7                                                              }
+ 585   6                                                      }
+ 586   5      
+ 587   5                                                      if(i == 15)
+ 588   5                                                      {
+ 589   6                                                              
+ 590   6                                                              rATStatus = SUCCESS_REC;
+ 591   6                                                              NbiotDev.sN[15]  = 0;
+ 592   6                                                              
+ 593   6                                                      }
+ 594   5                                                      
+ 595   5                                                      
+ 596   5                                                      ResetUART1Rec();
+ 597   5      
+ 598   5                                              }
+ 599   4                                              //rATStatus = NB_ATRecPro("OK");
+ 600   4                                              if(rATStatus == SUCCESS_REC)
+ 601   4                                              {
+ 602   5                                                      //NbiotDev.cmdTxStep = 2;
+ 603   5                                                      if(tPublishSt.isPublish) 
+ 604   5                                                      {
+ 605   6                                                              NbiotDev.step = NB_AT_CFUN_1;
+ 606   6                                                      }
+ 607   5                                                      else
+ 608   5                                                      {
+ 609   6                                                              NbiotDev.step = NB_NOR_SLEEP;
+ 610   6                                                              g_sleepFg = 0;  
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 11  
+
+ 611   6                                                              g_sleepCnt = 0;
+ 612   6                                                      }       
+ 613   5                                                      
+ 614   5                                                      NbiotDev.cmdTxStep = 0;
+ 615   5                                                      NbiotDev.cmdErrCnt = 0;
+ 616   5                                                      NbiotDev.idFg = 1;
+ 617   5      #ifdef PRINT_EN 
+ 618   5                                                      uart_printf("sN:%15s\r\n",NbiotDev.sN);
+ 619   5      #endif                                                  
+ 620   5                                                      Delay_ms(NB_AT_DELAY);                                          
+ 621   5                                              }
+ 622   4                                              else
+ 623   4                                              {
+ 624   5                                                      if(NbiotDev.NBTimerClk  > NB_TIMER_CLK)
+ 625   5                                                      {
+ 626   6                                                              NbiotDev.cmdErrCnt++;
+ 627   6                                                              NbiotDev.cmdTxStep = 0;
+ 628   6                                                              if(NbiotDev.cmdErrCnt > 3)
+ 629   6                                                              {
+ 630   7                                                                      NbiotDev.step = NB_DEV_RESET;
+ 631   7                                                              }
+ 632   6                                                              if(rATStatus == ERR_REC)
+ 633   6                                                              {
+ 634   7                                                                      Delay_ms(NB_AT_DELAY);
+ 635   7                                                              }
+ 636   6      
+ 637   6                                                      }
+ 638   5                                              }                               
+ 639   4                                      }
+ 640   3      #if 0                   
+                                              else if(NbiotDev.cmdTxStep == 2)
+                                              {
+                                                      rATStatus = NB_ATRecPro("OK");
+                                                      if(rATStatus == SUCCESS_REC)
+                                                      {
+                                                              NbiotDev.step = NB_AT_CFUN_1;
+                                                              NbiotDev.cmdTxStep = 0;
+                                                              NbiotDev.cmdErrCnt = 0;
+                                                              NbiotDev.idFg = 1;
+              #ifdef PRINT_EN 
+                                                              uart_printf("sN:%15s\r\n",NbiotDev.sN);
+              #endif                                                  
+                                                              Delay_ms(NB_AT_DELAY);                                          
+                                                      }
+                                                      else
+                                                      {
+                                                              if(NbiotDev.NBTimerClk  > NB_TIMER_CLK)
+                                                              {
+                                                                      NbiotDev.cmdTxStep = 0;
+                                                                      NbiotDev.cmdErrCnt = 0;
+                                                                      NbiotDev.step = NB_AT_CFUN_1;
+                                                                      break;
+                                                              }
+                                                      }                                                                       
+                                              }
+              #endif                          
+ 667   3                              }
+ 668   2                              break;
+ 669   2      
+ 670   2                      case NB_AT_CFUN_1:
+ 671   2                              {
+ 672   3                                      if(NbiotDev.cmdTxStep == 0)
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 12  
+
+ 673   3                                      {
+ 674   4                                              //ResetUART1Rec();
+ 675   4                                              SendDataToNB("AT+CFUN=1\r\n\0");
+ 676   4                                              
+ 677   4                                              NbiotDev.cmdTxStep = 1;
+ 678   4                                              
+ 679   4                                              ResetNBTickClk();
+ 680   4      #ifdef PRINT_EN 
+ 681   4                                              uart_printf("AT+CFUN=1\r\n");
+ 682   4      #endif                                          
+ 683   4                                      }
+ 684   3                                      else if(NbiotDev.cmdTxStep == 1)
+ 685   3                                      {
+ 686   4                                              rATStatus = NB_ATRecPro("OK");
+ 687   4                                              if(rATStatus == SUCCESS_REC)
+ 688   4                                              {
+ 689   5                                                      NbiotDev.step = NB_AT_CGATT_1;
+ 690   5                                                      NbiotDev.cmdTxStep = 0;
+ 691   5                                                      NbiotDev.cmdErrCnt = 0;
+ 692   5      #ifdef PRINT_EN 
+ 693   5                                              uart_printf("OK\r\n");
+ 694   5      #endif                                                  
+ 695   5                                              Delay_ms(NB_AT_DELAY);
+ 696   5                                              }
+ 697   4                                              else if((rATStatus == ERR_REC) ||(NbiotDev.NBTimerClk   > NB_TIMER_CLK))
+ 698   4                                              {       
+ 699   5                                                      NbiotDev.cmdErrCnt++;
+ 700   5                                                      NbiotDev.cmdTxStep = 0;
+ 701   5                                                      if(NbiotDev.cmdErrCnt > 3)
+ 702   5                                                      {
+ 703   6                                                              NbiotDev.step = NB_DEV_RESET;
+ 704   6                                                      }
+ 705   5                                                      if(rATStatus == ERR_REC)
+ 706   5                                                      {
+ 707   6                                                              Delay_ms(NB_AT_DELAY);
+ 708   6                                                      }
+ 709   5      
+ 710   5                                              }                               
+ 711   4                                      }
+ 712   3                              }
+ 713   2                      break;
+ 714   2                      
+ 715   2                      //case NB_AT_CSQ:
+ 716   2                              
+ 717   2                      //      break;
+ 718   2                      case NB_AT_CGATT_1:
+ 719   2                              {
+ 720   3                                      if(NbiotDev.cmdTxStep == 0)
+ 721   3                                      {
+ 722   4                                              //ResetUART1Rec();
+ 723   4                                              SendDataToNB("AT+CGATT=1\r\n\0");
+ 724   4                                              NbiotDev.cmdTxStep = 1;
+ 725   4                                              ResetNBTickClk();
+ 726   4      #ifdef PRINT_EN 
+ 727   4                                              uart_printf("AT+CGATT=1\r\n");
+ 728   4      #endif                                          
+ 729   4                                      }
+ 730   3                                      else if(NbiotDev.cmdTxStep == 1)
+ 731   3                                      {
+ 732   4                                              rATStatus = NB_ATRecPro("OK");
+ 733   4                                              if(rATStatus == SUCCESS_REC)
+ 734   4                                              {
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 13  
+
+ 735   5                                                      //NbiotDev.step = NB_AT_CGDCONT;
+ 736   5                                                      NbiotDev.step = NB_AT_NSOCL_1;
+ 737   5      
+ 738   5                                                      NbiotDev.cmdTxStep = 0;
+ 739   5                                                      NbiotDev.cmdErrCnt = 0;
+ 740   5      #ifdef PRINT_EN 
+ 741   5                                                      uart_printf("OK\r\n");
+ 742   5      #endif          
+ 743   5                                                      Delay_ms(NB_AT_DELAY);
+ 744   5                                              }
+ 745   4                                              else if((rATStatus == ERR_REC) ||(NbiotDev.NBTimerClk   > NB_TIMER_CLK))
+ 746   4                                              {
+ 747   5                                                      NbiotDev.cmdErrCnt++;
+ 748   5                                                      NbiotDev.cmdTxStep = 0;
+ 749   5                                                      if(NbiotDev.cmdErrCnt > 3)
+ 750   5                                                      {
+ 751   6                                                              NbiotDev.step = NB_DEV_RESET;
+ 752   6                                                      }
+ 753   5                                                      if(rATStatus == ERR_REC)
+ 754   5                                                      {
+ 755   6                                                              Delay_ms(NB_AT_DELAY);
+ 756   6                                                      }
+ 757   5      
+ 758   5                                              }
+ 759   4                                                                              
+ 760   4                                      }
+ 761   3                              }       
+ 762   2                              break;          
+ 763   2                      /*
+ 764   2                      case NB_AT_CGDCONT:
+ 765   2                              {
+ 766   2                                      if(NbiotDev.cmdTxStep == 0)
+ 767   2                                      {
+ 768   2                                              SendDataToNB("AT+CGDCONT=1,\"IP\",\"CMCC\"\r\n\0");
+ 769   2                                              NbiotDev.cmdTxStep = 1;
+ 770   2                                              
+ 771   2                                              ResetNBTickClk();
+ 772   2      #ifdef PRINT_EN 
+ 773   2                                              uart_printf("AT+CGDCONT=1,\"IP\",\"CMCC\"\r\n\0");
+ 774   2      #endif                                          
+ 775   2                                      }
+ 776   2                                      else if(NbiotDev.cmdTxStep == 1)
+ 777   2                                      {
+ 778   2                                              rATStatus = NB_ATRecPro("OK");
+ 779   2                                              if(rATStatus == SUCCESS_REC)
+ 780   2                                              {
+ 781   2                                                      NbiotDev.step = NB_AT_NSOCR_STREAM;
+ 782   2                                                      NbiotDev.cmdTxStep = 0;
+ 783   2                                                      NbiotDev.cmdErrCnt = 0;
+ 784   2      #ifdef PRINT_EN 
+ 785   2                                                      uart_printf("OK\r\n");
+ 786   2      #endif          
+ 787   2                                                      Delay_ms(NB_AT_DELAY);
+ 788   2                                              }
+ 789   2                                              else
+ 790   2                                              {
+ 791   2                                                      if(NbiotDev.NBTimerClk  > NB_TIMER_CLK)
+ 792   2                                                      {
+ 793   2                                                              NbiotDev.cmdErrCnt++;
+ 794   2                                                              NbiotDev.cmdTxStep = 0;
+ 795   2                                                              if(NbiotDev.cmdErrCnt > 3)
+ 796   2                                                              {
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 14  
+
+ 797   2                                                                      NbiotDev.step = NB_DEV_RESET;
+ 798   2                                                              }
+ 799   2                                                              break;
+ 800   2                                                      }
+ 801   2                                              }                               
+ 802   2                                      }
+ 803   2                              }
+ 804   2                              break;
+ 805   2      */
+ 806   2                              
+ 807   2                      case NB_AT_NSOCL_1:
+ 808   2                              {
+ 809   3                                      if(NbiotDev.cmdTxStep == 0)
+ 810   3                                      {
+ 811   4                                              //ResetUART1Rec();
+ 812   4                                              SendDataToNB("AT+NSOCL=1\r\n\0");
+ 813   4                                              NbiotDev.cmdTxStep = 1;
+ 814   4                                              ResetNBTickClk();
+ 815   4      #ifdef PRINT_EN 
+ 816   4                                              uart_printf("AT+NSOCL=1\r\n");
+ 817   4      #endif                                          
+ 818   4                                      }
+ 819   3                                      else if(NbiotDev.cmdTxStep == 1)
+ 820   3                                      {
+ 821   4                                              rATStatus = NB_ATRecPro("OK");
+ 822   4                                              if(rATStatus == SUCCESS_REC)
+ 823   4                                              {
+ 824   5                                                      //NbiotDev.step = NB_AT_CGDCONT;
+ 825   5                                                      NbiotDev.step = NB_AT_NSOCR_STREAM;
+ 826   5      
+ 827   5                                                      NbiotDev.cmdTxStep = 0;
+ 828   5                                                      NbiotDev.cmdErrCnt = 0;
+ 829   5      #ifdef PRINT_EN 
+ 830   5                                                      uart_printf("OK\r\n");
+ 831   5      #endif          
+ 832   5                                                      Delay_ms(NB_AT_DELAY);
+ 833   5                                              }
+ 834   4                                              else if((rATStatus == ERR_REC) ||(NbiotDev.NBTimerClk   > NB_TIMER_CLK))
+ 835   4                                              {
+ 836   5                                                      //NbiotDev.step = NB_AT_CGDCONT;
+ 837   5                                                      NbiotDev.step = NB_AT_NSOCR_STREAM;
+ 838   5      
+ 839   5                                                      NbiotDev.cmdTxStep = 0;
+ 840   5                                                      NbiotDev.cmdErrCnt = 0;
+ 841   5      #ifdef PRINT_EN 
+ 842   5                                                      uart_printf("OK\r\n");
+ 843   5      #endif          
+ 844   5                                                      Delay_ms(NB_AT_DELAY);
+ 845   5      
+ 846   5                                              }
+ 847   4                                                                              
+ 848   4                                      }
+ 849   3                              }
+ 850   2                              break;
+ 851   2      
+ 852   2                      case NB_AT_NSOCR_STREAM:
+ 853   2                              {  
+ 854   3                                      if(NbiotDev.cmdTxStep == 0)
+ 855   3                                      {
+ 856   4                                              //ResetUART1Rec();
+ 857   4                                              SendDataToNB("AT+NSOCR=STREAM,6,65000,1\r\n\0"); 
+ 858   4                                              
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 15  
+
+ 859   4                                              NbiotDev.cmdTxStep = 1;
+ 860   4                                              ResetNBTickClk();
+ 861   4      #ifdef PRINT_EN 
+ 862   4                                              uart_printf("AT+NSOCR=STREAM,6,65000,1\r\n");
+ 863   4      #endif                                  
+ 864   4                                      }
+ 865   3      #if     1                       
+ 866   3                                      else if(NbiotDev.cmdTxStep == 1)
+ 867   3                                      {
+ 868   4                                              rATStatus = NB_ATRecPro("OK");
+ 869   4                                              if(rATStatus == SUCCESS_REC)
+ 870   4                                              {
+ 871   5                                                      NbiotDev.step = NB_AT_NSOCO;
+ 872   5                                                      NbiotDev.cmdTxStep = 0;
+ 873   5                                                      NbiotDev.cmdErrCnt = 0;
+ 874   5      #ifdef PRINT_EN 
+ 875   5                                              uart_printf("NSOCR=OK\r\n");
+ 876   5      #endif                                                  
+ 877   5                                              Delay_ms(NB_AT_DELAY*4);
+ 878   5      
+ 879   5                                              }
+ 880   4                                              else if((rATStatus == ERR_REC) ||(NbiotDev.NBTimerClk   > (NB_TIMER_CLK*4)))
+ 881   4                                              {
+ 882   5                                                      NbiotDev.cmdErrCnt++;
+ 883   5                                                      NbiotDev.cmdTxStep = 0;
+ 884   5                                                      if(NbiotDev.cmdErrCnt > 3)
+ 885   5                                                      {
+ 886   6                                                              NbiotDev.step = NB_DEV_RESET;
+ 887   6                                                      }
+ 888   5                                                      if(rATStatus == ERR_REC)
+ 889   5                                                      {
+ 890   6                                                              Delay_ms(NB_AT_DELAY);
+ 891   6                                                      }
+ 892   5      
+ 893   5                                              }
+ 894   4                                                                                                                              
+ 895   4                                      }                       
+ 896   3      #else
+                                              else if(NbiotDev.cmdTxStep == 1)
+                                              {
+                                                      if(uart1_rx_finish_flag)
+                                                      {
+                                                              uint8_t i;
+                                                                                                              
+                                                              for(i = 0; i < 20; i++)
+                                                              {
+                                                                      if((uart1_rx_buf[i] >= '0') && (uart1_rx_buf[i] <= '9'))
+                                                                      {
+                                                                              NbiotDev.protId = uart1_rx_buf[i];
+                                                                      }
+                                                                      else
+                                                                      {
+                                                                              break;
+                                                                      }
+                                                              }
+              
+                                                              if(i == 1)
+                                                              {
+                                                                      
+                                                                      rATStatus = SUCCESS_REC;
+                                                              }
+                                                              
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 16  
+
+                                                              ResetUART1Rec();
+                                                              
+                                                      }
+                                                      //rATStatus = NB_ATRecPro("OK");
+                                                      if(rATStatus == SUCCESS_REC)
+                                                      {
+                                                              NbiotDev.cmdTxStep = 2;
+                                                      }
+                                                      else
+                                                      {
+                                                              if(NbiotDev.NBTimerClk  > 2000)
+                                                              {
+                                                                      NbiotDev.cmdErrCnt++;
+                                                                      NbiotDev.cmdTxStep = 0;
+                                                                      if(NbiotDev.cmdErrCnt > 3)
+                                                                      {
+                                                                              NbiotDev.step = NB_DEV_RESET;
+                                                                      }
+                                                                      break;
+                                                              }
+                                                      }                               
+                                              }
+                                              
+                                              else if(NbiotDev.cmdTxStep == 2)
+                                              {
+                                                      rATStatus = NB_ATRecPro("OK");
+                                                      if(rATStatus == SUCCESS_REC)
+                                                      {
+                                                              NbiotDev.step = NB_AT_NSOCO;
+                                                              NbiotDev.cmdTxStep = 0;
+                                                              NbiotDev.cmdErrCnt = 0;
+              #ifdef PRINT_EN 
+                                                      uart_printf("OK\r\n");
+              #endif                                                  
+                                                      Delay_ms(NB_AT_DELAY*3);
+              
+                                                      }
+                                                      else
+                                                      {
+                                                              if(NbiotDev.NBTimerClk  > 1000)
+                                                              {
+                                                                      NbiotDev.cmdTxStep = 0;
+                                                                      NbiotDev.step = NB_AT_NSOCO;
+                                                                      break;
+                                                              }
+                                                      }                                                                       
+                                              }
+              #endif                          
+ 969   3                              }
+ 970   2                              break;
+ 971   2                      case NB_AT_NSOCO:
+ 972   2                              {
+ 973   3                                      if(NbiotDev.cmdTxStep == 0)
+ 974   3                                      {
+ 975   4                                              //ResetUART1Rec();
+ 976   4                                              SendDataToNB("AT+NSOCO=1,47.107.236.178,8000\r\n\0");
+ 977   4                                              //SendDataToNB("AT+NSOCO=1,112.74.59.250,10002\r\n\0");
+ 978   4                                              NbiotDev.cmdTxStep = 1;                 
+ 979   4                                              ResetNBTickClk();
+ 980   4      #ifdef PRINT_EN
+ 981   4                                              uart_printf("AT+NSOCO=1,47.107.236.178,8000\r\n");
+ 982   4                                              //uart_printf("AT+NSOCO=1,112.74.59.250,10002\r\n");
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 17  
+
+ 983   4      
+ 984   4      #endif                          
+ 985   4                                      }
+ 986   3                                      else if(NbiotDev.cmdTxStep == 1)
+ 987   3                                      {
+ 988   4                                              rATStatus = NB_ATRecPro("OK");
+ 989   4                                              if(rATStatus == SUCCESS_REC)
+ 990   4                                              {
+ 991   5                                                      NbiotDev.step = NB_AT_NSOSD;
+ 992   5                                                      
+ 993   5                                                      NbiotDev.cmdTxStep = 0;
+ 994   5                                                      NbiotDev.cmdErrCnt = 0; 
+ 995   5      #ifdef PRINT_EN 
+ 996   5                                              uart_printf("NSOCO=OK\r\n");
+ 997   5      #endif                                                  
+ 998   5                                              Delay_ms(NB_AT_DELAY*5);
+ 999   5      
+1000   5                                              }
+1001   4                                              else if((rATStatus == ERR_REC) ||(NbiotDev.NBTimerClk   > (NB_TIMER_CLK*2)))
+1002   4                                              {
+1003   5                                                      NbiotDev.cmdErrCnt++;
+1004   5                                                      NbiotDev.cmdTxStep = 0;
+1005   5                                                      if(NbiotDev.cmdErrCnt > 3)
+1006   5                                                      {
+1007   6                                                              NbiotDev.step = NB_DEV_RESET;
+1008   6                                                      }
+1009   5                                                      if(rATStatus == ERR_REC)
+1010   5                                                      {
+1011   6                                                              Delay_ms(NB_AT_DELAY*3);
+1012   6                                                      }
+1013   5                                              }
+1014   4                                              
+1015   4                                      }
+1016   3                                      
+1017   3                              }
+1018   2                              break;
+1019   2      
+1020   2                      case NB_AT_NSOSD:
+1021   2                              {  //{"CODE":"0852019020097961","TYPE":"DISCONNECT_WIRE"}
+1022   3                                 //{"CODE":"0852019020097961","TYPE":"LOW_BATTERY"}
+1023   3                              
+1024   3                                      //{"SN":"%15s","CMD_TYPE":"ALARM","ALARM_TYPE":"%s"}
+1025   3                                      //"AT+NSOSD=1,112,313637303933\r\n\0"
+1026   3                                      //static uint16_t slen;
+1027   3                                      
+1028   3                                      if(NbiotDev.cmdTxStep == 0)
+1029   3                                      {
+1030   4                                              
+1031   4                                              uint8_t xdata SendAtbuff[150] = {0};
+1032   4                                              
+1033   4                                              tPublishSt.strlen = AlarmStringPut(SendAtbuff);
+1034   4                                              ResetUART1Rec();
+1035   4                                              SendDataToNB(SendAtbuff);
+1036   4                                              
+1037   4                                              NbiotDev.cmdTxStep = 1;
+1038   4                                              
+1039   4                                              ResetNBTickClk();
+1040   4      #ifdef PRINT_EN
+1041   4                                              uart_printf("STR\r\n");
+1042   4      
+1043   4      #endif                                  
+1044   4                                      }
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 18  
+
+1045   3                                      
+1046   3      #if 1
+1047   3                                      else if(NbiotDev.cmdTxStep == 1)
+1048   3                                      {
+1049   4                                              rATStatus = NB_ATRecPro("OK");
+1050   4                                              if(rATStatus == SUCCESS_REC)
+1051   4                                              {
+1052   5                                                      NbiotDev.step = NB_NOR_COMM;
+1053   5                                                      NbiotDev.cmdTxStep = 0;
+1054   5                                                      NbiotDev.cmdErrCnt = 0; 
+1055   5              
+1056   5      #ifdef PRINT_EN
+1057   5                                              uart_printf("NSOSD=OK\r\n");
+1058   5      
+1059   5      #endif                                                  
+1060   5                                                  //Delay_ms(NB_AT_DELAY*10);
+1061   5      
+1062   5                                              }
+1063   4                                              else if((rATStatus == ERR_REC) ||(NbiotDev.NBTimerClk   > (NB_TIMER_CLK*4)))
+1064   4                                              {
+1065   5                                                      NbiotDev.cmdErrCnt++;
+1066   5                                                      NbiotDev.cmdTxStep = 0;
+1067   5                                                      if(NbiotDev.cmdErrCnt > 3)
+1068   5                                                      {
+1069   6                                                              NbiotDev.step = NB_DEV_RESET;
+1070   6                                                      }
+1071   5                                                      if(rATStatus == ERR_REC)
+1072   5                                                      {
+1073   6                                                              Delay_ms(NB_AT_DELAY);
+1074   6                                                      }
+1075   5                                              }
+1076   4                                              
+1077   4                                      }
+1078   3      #else           
+                                              else if(NbiotDev.cmdTxStep == 1)
+                                              {
+                                                      uint8_t xdata recAtbuff[10] = {0};
+                                                      
+                                                      sprintf(recAtbuff,"1,%d\0",tPublishSt.strlen);  
+                                                      
+                                                      rATStatus = NB_ATRecPro(recAtbuff);
+                                                      if(rATStatus == SUCCESS_REC)
+                                                      {
+                                                              NbiotDev.cmdTxStep == 2;
+                                                      #ifdef PRINT_EN
+                                                              uart_printf("1,%d\r\n",tPublishSt.strlen);
+                                                      #endif          
+                                                      }
+                                                      else
+                                                      {
+                                                              if(NbiotDev.NBTimerClk  > (NB_TIMER_CLK*4))
+                                                              {
+                                                                      NbiotDev.cmdErrCnt++;
+                                                                      NbiotDev.cmdTxStep = 0;
+                                                                      if(NbiotDev.cmdErrCnt > 3)
+                                                                      {
+                                                                              NbiotDev.step = NB_DEV_RESET;
+                                                                      }
+                                                                      break;
+                                                              }
+                                                      }                               
+                                              }
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 19  
+
+                                              else if(NbiotDev.cmdTxStep == 2)
+              
+                                              {
+                                                      rATStatus = NB_ATRecPro("OK");
+                                                      if(rATStatus == SUCCESS_REC)
+                                                      {
+                                                              NbiotDev.step = NB_NOR_COMM;
+                                                              NbiotDev.cmdTxStep = 0;
+                                                              NbiotDev.cmdErrCnt = 0;
+                                                              g_sleepFg = 0;  
+                                                              g_sleepCnt = 0;
+              
+              #ifdef PRINT_EN
+                                                      uart_printf("NSOSD=OK\r\n");
+              
+              #endif                                          
+                                                      }
+                                                      else
+                                                      {
+                                                              if(NbiotDev.NBTimerClk  > NB_TIMER_CLK)
+                                                              {
+                                                                      NbiotDev.cmdTxStep = 0;
+                                                                      NbiotDev.step = NB_DEV_RESET;
+                                                                      break;
+                                                              }
+                                                      }                                                                       
+                                              }
+              #endif                          
+1135   3                              }
+1136   2                              break;
+1137   2                      case NB_NOR_COMM:
+1138   2                              if(NbiotDev.cmdTxStep == 0)
+1139   2                              {
+1140   3                                      NbiotDev.cmdTxStep = 1;                 
+1141   3                                      ResetNBTickClk();
+1142   3                              }
+1143   2                              
+1144   2      #if 1           
+1145   2                              else if(NbiotDev.cmdTxStep == 1)
+1146   2                              {
+1147   3                                      if(uart1_rx_finish_flag)
+1148   3                                      {
+1149   4                                              if(tPublishSt.alarmTpye[0] == DISCONNECT_WIRE)
+1150   4                                              {       // {"TYPE":"DISCONNECT_WIRE","MSG":"OK"}
+1151   5                                                      if(strstr(uart1_rx_buf,"+NSONMI:1,37"))
+1152   5                                                      {
+1153   6                                                              rATStatus = SUCCESS_REC;
+1154   6      #ifdef PRINT_EN 
+1155   6                                                              uart_printf("I:1,37\r\n");
+1156   6      #endif  
+1157   6                                                              ResetUART1Rec();
+1158   6                                                      } // {"TYPE":"DISCONNECT_WIRE","MSG":"NOBD"}
+1159   5                                                      else if(strstr(uart1_rx_buf,"+NSONMI:1,39"))
+1160   5                                                      {
+1161   6                                                              NbiotDev.idFg = 0;
+1162   6                                                              rATStatus = ERR_REC;
+1163   6                                                              //rATStatus = SUCCESS_REC;
+1164   6      #ifdef PRINT_EN 
+1165   6                                                              uart_printf("I:1,39\r\n");
+1166   6      #endif                                          
+1167   6                                                              ResetUART1Rec();
+1168   6                                                      }
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 20  
+
+1169   5                                              }
+1170   4                                              else
+1171   4                                              {  // {"TYPE":"LOW_BATTERY","MSG":"OK"}    
+1172   5                                                      if(strstr(uart1_rx_buf,"+NSONMI:1,33"))
+1173   5                                                      {
+1174   6                                                              rATStatus = SUCCESS_REC;
+1175   6      #ifdef PRINT_EN 
+1176   6                                                              uart_printf("I:1,33\r\n");
+1177   6      #endif  
+1178   6                                                              ResetUART1Rec();
+1179   6                                                      } // {"TYPE":"LOW_BATTERY","MSG":"NOBD"} 
+1180   5                                                      else if(strstr(uart1_rx_buf,"+NSONMI:1,35"))
+1181   5                                                      {
+1182   6                                                              NbiotDev.idFg = 0;
+1183   6                                                              rATStatus = ERR_REC;
+1184   6                                                              //rATStatus = SUCCESS_REC;
+1185   6      #ifdef PRINT_EN 
+1186   6                                                              uart_printf("I:1,35\r\n");
+1187   6      #endif                                          
+1188   6                                                              ResetUART1Rec();
+1189   6                                                      }
+1190   5                                              }
+1191   4      
+1192   4      #ifdef PRINT_EN 
+1193   4                                              uart_printf("rx_f: %s\r\n",uart1_rx_buf);
+1194   4      #endif                                          
+1195   4      
+1196   4                                      }
+1197   3                                      if(rATStatus == SUCCESS_REC)
+1198   3                                      {
+1199   4                                              NbiotDev.step = NB_NOR_SLEEP;
+1200   4                                              NbiotDev.cmdTxStep = 0;
+1201   4                                              NbiotDev.cmdErrCnt = 0;
+1202   4                                              //tPublishSt.isPublish = 0;
+1203   4                                              UpdatePublishQueue();
+1204   4                                              g_sleepFg = 0;  
+1205   4                                              g_sleepCnt = 0;
+1206   4      
+1207   4      #ifdef PRINT_EN  
+1208   4                                              uart_printf("I-ok\r\n");
+1209   4      #endif                                                  
+1210   4                                              //Delay_ms(NB_AT_DELAY);                                                
+1211   4                                      }
+1212   3                                      else if((rATStatus == ERR_REC) ||(NbiotDev.NBTimerClk   > (NB_TIMER_CLK*8)))
+1213   3                                      {
+1214   4      
+1215   4                                              tPublishSt.errCnt++;
+1216   4                                              if(tPublishSt.errCnt >= 3)
+1217   4                                              {
+1218   5                                                      NbiotDev.step = NB_NOR_SLEEP;
+1219   5                                                      //tPublishSt.isPublish = 0;
+1220   5                                                      UpdatePublishQueue();
+1221   5                                                      g_sleepFg = 0;  
+1222   5                                                      g_sleepCnt = 0;
+1223   5      
+1224   5                                              }
+1225   4                                              else
+1226   4                                              {
+1227   5                                                      NbiotDev.step = NB_AT;
+1228   5                                              }
+1229   4                                              
+1230   4                                              NbiotDev.cmdTxStep = 0;
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 21  
+
+1231   4                                              NbiotDev.cmdErrCnt = 0;
+1232   4      
+1233   4      #ifdef PRINT_EN 
+1234   4                                              uart_printf("I_error\r\n");
+1235   4      #endif                                          
+1236   4                                      }
+1237   3                                                              
+1238   3                              }
+1239   2      #else                   
+                                      else if(NbiotDev.cmdTxStep == 1)
+                                      {
+                                              
+                                              rATStatus = NB_ATRecPro("+NSONMI:1,37");
+                                              if(rATStatus == SUCCESS_REC)
+                                              {
+                                                      #if 0
+                                                      NbiotDev.cmdTxStep = 2;
+              
+                                                      #else
+                                                      NbiotDev.step = NB_NOR_SLEEP;
+                                                      NbiotDev.cmdTxStep = 0;
+                                                      NbiotDev.cmdErrCnt = 0;
+                                                      tPublishSt.isPublish = 0;
+                                                      g_sleepFg = 0;  
+                                                      g_sleepCnt = 0;
+                                                      #endif
+              
+              #ifdef PRINT_EN
+                                              uart_printf("NSONMI=OK\r\n");
+              
+              #endif                                          
+                                              }                       
+                                              else 
+                                              {
+                                                      if(NbiotDev.NBTimerClk  > NB_TIMER_CLK)
+                                                      {
+                                                              NbiotDev.cmdErrCnt++;
+                                                              NbiotDev.cmdTxStep = 0;
+                                                              if(NbiotDev.cmdErrCnt > 3)
+                                                              {
+                                                                      NbiotDev.step = NB_DEV_RESET;
+                                                              }
+                                                              break;
+                                                      }
+                                              }
+              
+                                      }
+                                      else if(NbiotDev.cmdTxStep == 2)
+                                      {
+                                              rATStatus = NB_ATRecPro("+NSOCLI:");
+                                              if(rATStatus == SUCCESS_REC)
+                                              {
+                                                      NbiotDev.step = NB_NOR_SLEEP;
+                                                      NbiotDev.cmdTxStep = 0;
+                                                      NbiotDev.cmdErrCnt = 0;
+                                                      tPublishSt.isPublish = 0;
+                                                      g_sleepFg = 0;  
+                                                      g_sleepCnt = 0;
+              #ifdef PRINT_EN
+                                                      uart_printf("NSOCLI=OK\r\n");
+              
+              #endif                                          
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 22  
+
+                                              }       
+                                              else 
+                                              {
+                                                      if(NbiotDev.NBTimerClk  > (NB_TIMER_CLK*4))
+                                                      {
+                                                              NbiotDev.cmdErrCnt++;
+                                                              NbiotDev.cmdTxStep = 0;
+                                                              if(NbiotDev.cmdErrCnt > 3)
+                                                              {
+                                                                      NbiotDev.step = NB_DEV_RESET;
+                                                              }
+                                                              break;
+                                                      }
+                                              }
+              
+                                      }
+              #endif          
+1310   2                              break;
+1311   2                      case NB_NOR_SLEEP:
+1312   2                              // 进入休眠
+1313   2              
+1314   2                              if((tPublishSt.isPublish == 0) && (tAlarmDri.alarmFlag == 0) && (g_sleepFg == 1))
+1315   2                              {
+1316   3      #ifdef PRINT_EN
+1317   3                                      uart_printf("V: %d\r\n",tVoltageAdc.voltageValue);
+1318   3                                      uart_printf("Stop\r\n");
+1319   3      #endif                  
+1320   3                                      Delay_ms(2);
+1321   3                                      EnterStopMode();
+1322   3                                      
+1323   3                                      WakeUp();
+1324   3      #ifdef PRINT_EN                         
+1325   3                                      if(tVoltageAdc.rtmWakeAdcFg)
+1326   3                                      {
+1327   4                                              uart_printf("rtc wake\r\n");
+1328   4                                      }
+1329   3                                      else
+1330   3                                      {
+1331   4                                          uart_printf("int wake\r\n");
+1332   4                                      }
+1333   3      #endif                                  
+1334   3                              }
+1335   2      
+1336   2                              if(tPublishSt.isPublish)
+1337   2                              {
+1338   3                                      NB73Init();
+1339   3                                      NbiotDev.step = NB_DEV_RESET;
+1340   3                                      NbiotDev.cmdTxStep = 0;
+1341   3                                      NbiotDev.cmdErrCnt = 0;
+1342   3                              }
+1343   2                              
+1344   2                              if(tVoltageAdc.rtmWakeAdcFg == 1)
+1345   2                              {
+1346   3                          if(Time_ms%2 == 0)
+1347   3                          {
+1348   4                              VoltageADCCleck();
+1349   4                          }
+1350   3                                      if(Time_ms%4 == 0)
+1351   3                                      {       
+1352   4                                              VoltageCleck();
+1353   4                                      }
+1354   3                              }                       
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 23  
+
+1355   2                              
+1356   2                              break;  
+1357   2      
+1358   2                              
+1359   2              }
+1360   1      #endif
+1361   1      }
+1362          
+1363          /**************************************************************
+1364          **函数名称：SetSendAlarmDataToCloud
+1365          **函数描述：添加发送类型
+1366          **入口参数：发送类型
+1367          **出口参数：
+1368          ***************************************************************/
+1369          void SetSendAlarmDataToCloud(alarm_tpye _alarm_type)
+1370          {
+1371   1              uint8_t i;
+1372   1      
+1373   1              if(tPublishSt.isPublish == 0)
+1374   1              {
+1375   2                      tPublishSt.alarmTpye[tPublishSt.isPublish] = _alarm_type;
+1376   2                      tPublishSt.isPublish++;
+1377   2                      tPublishSt.errCnt = 0;
+1378   2                      tPublishSt.msCnt = 0;           
+1379   2              }
+1380   1              else
+1381   1              {
+1382   2                      
+1383   2                      
+1384   2                      for(i = 0; i < tPublishSt.isPublish; i++)
+1385   2                      {
+1386   3                              if(tPublishSt.alarmTpye[i] == _alarm_type)
+1387   3                              {
+1388   4                                      break;
+1389   4                              }
+1390   3                      }               
+1391   2      
+1392   2                      if(i == tPublishSt.isPublish)
+1393   2                      {
+1394   3                              if(tPublishSt.isPublish >= 3)
+1395   3                              {
+1396   4                                      tPublishSt.alarmTpye[tPublishSt.isPublish-1] = _alarm_type;
+1397   4                              }
+1398   3                              else
+1399   3                              {
+1400   4                                      tPublishSt.alarmTpye[tPublishSt.isPublish] = _alarm_type;
+1401   4                                      tPublishSt.isPublish++;
+1402   4                      tPublishSt.errCnt = 0;
+1403   4                      tPublishSt.msCnt = 0;       
+1404   4                                      
+1405   4                              }
+1406   3      
+1407   3                      }
+1408   2              }
+1409   1      
+1410   1      }
+1411          /**************************************************************
+1412          **函数名称：UpdatePublishQueue
+1413          **函数描述：删除发布类型
+1414          **入口参数：
+1415          **出口参数：
+1416          ***************************************************************/
+C51 COMPILER V9.01   NB_IOT                                                                07/28/2019 16:49:05 PAGE 24  
+
+1417          void UpdatePublishQueue(void)
+1418          {
+1419   1              alarm_tpye  t_alarm_tpye;
+1420   1              uint8_t i;
+1421   1              
+1422   1              if(!tPublishSt.isPublish)
+1423   1                      return;
+1424   1      
+1425   1              tPublishSt.isPublish--;
+1426   1              tPublishSt.errCnt = 0;
+1427   1              tPublishSt.msCnt = 0;   
+1428   1      
+1429   1              t_alarm_tpye = tPublishSt.alarmTpye[0];
+1430   1              
+1431   1              for(i = 0; i < 2; i++)
+1432   1              {
+1433   2                       tPublishSt.alarmTpye[i] = tPublishSt.alarmTpye[i+1];
+1434   2              }
+1435   1      
+1436   1              tPublishSt.alarmTpye[2] =  t_alarm_tpye;
+1437   1      }
+1438          
+1439          #endif
+*** WARNING C312 IN LINE 1439 OF ..\NB_iot\Nb_iot.c: misplaced endif control
+1440          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   2490    ----
+   CONSTANT SIZE    =   1102    ----
+   XDATA SIZE       =   ----     400
+   PDATA SIZE       =      8      41
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =     56    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,6 @@
+---- msCnt Matches (2 in 2 files) ----
+SetSendAlarmDataToCloud in Nb_iot.c (Application\NB_iot) : 	tPublishSt.msCnt = 0;
+{anonsPublishSt} in Nb_iot.h (Application\NB_iot) : 	uint8_t   msCnt;	
+---- msCnt Search Errors Encountered (1) ----
+The following 1 files could not be processed:
+D:\project\CA51F3_Pro\disconnectAlarm\DisconnectionAlarm NB-IOT-190719 - 0720\Application\DisconnectionAlarm NB-IOT keil\HEX2BIN.EXE : File could not be opened.

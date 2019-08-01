@@ -1,0 +1,6 @@
+---- publishFg Matches (5 in 3 files) ----
+Rtc.c (library\sources):		if(tVoltageAdc.publishFg)
+Rtc.c (library\sources):				tVoltageAdc.publishFg = 0;	
+Voltage_adc.c (application\drive\sources):					if(!tVoltageAdc.publishFg)
+Voltage_adc.c (application\drive\sources):						tVoltageAdc.publishFg = 1;
+Voltage_adc.h (application\drive\include):	uint8_t 	 publishFg;					//发布标记

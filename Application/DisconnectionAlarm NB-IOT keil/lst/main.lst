@@ -1,0 +1,410 @@
+C51 COMPILER V9.01   MAIN                                                                  07/28/2019 16:49:04 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN .\hex\main.obj
+COMPILER INVOKED BY: D:\keil\C51\BIN\C51.EXE main.c COMPACT ROM(COMPACT) OPTIMIZE(9,SIZE) BROWSE DEBUG OBJECTEXTEND PRIN
+                    -T(.\lst\main.lst) OBJECT(.\hex\main.obj)
+
+line level    source
+
+   1          #ifndef _MAIN_C_
+   2          #define _MAIN_C_
+   3          
+   4          /*********************************************************************************************************
+             -************/
+   5          #include "ca51f_config.h"
+   6          #if (IC_TYPE == IC_TYPE_CA51F2X)
+              #include "../../includes/ca51f2sfr.h"
+              #include "../../includes/ca51f2xsfr.h"
+              #include "../../includes/gpiodef_f2.h"
+              #elif (IC_TYPE == IC_TYPE_CA51F3X)
+  11          #include "../../includes/ca51f3sfr.h"
+  12          #include "../../includes/ca51f3xsfr.h"
+  13          #include "../../includes/gpiodef_f3.h"
+  14          #endif
+  15          #include "../../includes/system.h"
+  16          #include "../../Library/includes/system_clock.h"
+  17          #include "../../Library/includes/stop_idle.h"
+  18          #include "../../Library/includes/uart.h"
+  19          #include "../../Library/includes/delay.h"
+  20          #include "../../Library/includes/pwm.h"
+  21          #include "../../Library/includes/rtc.h"
+  22          #include "../../Library/includes/adc.h"
+  23          
+  24          #include "../NB_iot/Nb_iot.h"
+  25          #include "../Wirealarm/Wirealarm.h"
+  26          #include "../drive/Include/voltage_adc.h"
+  27          #include <intrins.h>
+  28          
+  29          //uint8_t xdata Time_10ms;
+  30          uint16_t xdata Time_ms;
+  31          uint8_t g_sleepFg;
+  32          uint16_t g_sleepCnt;
+  33          
+  34          
+  35          /**************************************************************
+  36          **函数名称：Timer1Init
+  37          **函数描述：定时器1初始化、           模式1 、16计数器、   5ms中断
+  38          **入口参数：无
+  39          **出口参数：无
+  40          ***************************************************************/
+  41          void Timer1Init(void)                   //T1初始化      3.6864 MHZ/12*4       1个计数0.814us
+  42          {
+  43   1              TMOD = (TMOD&0xFF)|0x10;     //定时器1 模式1 16计数器  
+  44   1              TH1 = 0xFB;TL1 = 0x33;          //1ms
+  45   1              //TH1=0xE8;TL1=0x02;            //     5ms     5,000 / 0.814 = 6142    65536-12285 = 59394
+  46   1              //TH1=0xD0;TL1=0x03;    //10ms  
+  47   1              
+  48   1              ET1=1;
+  49   1              TR1=1;
+  50   1              
+  51   1      }
+  52          
+  53          /**************************************************************
+C51 COMPILER V9.01   MAIN                                                                  07/28/2019 16:49:04 PAGE 2   
+
+  54          **函数名称：Timer1Zd
+  55          **函数描述：定时器1中断、1ms中断 刷新工程计时Time_ms
+  56          **入口参数：无
+  57          **出口参数：无
+  58          ***************************************************************/
+  59          void Timer1Zd(void) interrupt 3         //定时器0中断
+  60          {
+  61   1              TH1 = 0xFB;TL1 = 0x33;          //1ms
+  62   1      
+  63   1              //TH1=0xE8;TL1=0x02;                    //5ms中断一次   
+  64   1      
+  65   1              //TH0=0xD0;      TL0=0x03;              //10ms中断一次  
+  66   1              
+  67   1              Time_ms++;
+  68   1              if(Time_ms == 0xffff)
+  69   1              {
+  70   2                      Time_ms = 0;
+  71   2              }
+  72   1              
+  73   1              NBTickClk();
+  74   1          AlarmWireCleck();
+  75   1          
+  76   1              
+  77   1              if(recTime > 0)
+  78   1              {
+  79   2                      recTime--;
+  80   2                      if(recTime == 0)
+  81   2                      {
+  82   3                              uart1_rx_finish_flag = 1;
+  83   3                      }
+  84   2              }
+  85   1              
+  86   1              if(g_sleepFg == 0)
+  87   1              {
+  88   2                      g_sleepCnt++;
+  89   2                      if(g_sleepCnt > 1000)
+  90   2                      {
+  91   3                              g_sleepFg = 1;
+  92   3                      }
+  93   2              }
+  94   1      }
+  95          
+  96          /**************************************************************
+  97          **函数名称：GetProClockTick
+  98          **函数描述：取工程计时Time_ms
+  99          **入口参数：无
+ 100          **出口参数：无
+ 101          ***************************************************************/
+ 102          uint16_t GetProClockTick(void)
+ 103          {
+ 104   1              return Time_ms;
+ 105   1      }
+ 106          
+ 107          /**************************************************************
+ 108          **函数名称：WakeUp
+ 109          **函数描述：唤醒单片机初始化外设
+ 110          **入口参数：无
+ 111          **出口参数：无
+ 112          ***************************************************************/
+ 113          void WakeUp(void)
+ 114          {
+ 115   1      
+C51 COMPILER V9.01   MAIN                                                                  07/28/2019 16:49:04 PAGE 3   
+
+ 116   1              Sys_Clk_Set_PLL(PLL_Multiple);
+ 117   1              
+ 118   1              RTM_Con(RTM_Off);
+ 119   1              Timer1Init();                                                   //timer1初始化
+ 120   1      //      NB73Init();
+ 121   1              
+ 122   1      //      INT2EN =0;      //INT2中断失能
+ 123   1      //      EPIE &=(~0X01);    //外部2中断失能
+ 124   1              EX1 =0;     //INT1中断失能
+ 125   1              IE1 =0;    //外部中断失能
+ 126   1      
+ 127   1              AlarmGPIOInit();
+ 128   1      #ifdef PRINT_EN         
+ 129   1              Uart0_Initial(UART0_BAUTRATE);          //串口0初始化
+ 130   1      #endif  
+ 131   1              Uart1_Initial(UART1_BAUTRATE);                  //串口1初始化   
+ 132   1              BuzzerInitSet();
+ 133   1              
+ 134   1              if(tVoltageAdc.rtmWakeAdcFg)
+ 135   1              {
+ 136   2              VoltageAdcInit();
+ 137   2              }
+ 138   1                      
+ 139   1              g_sleepFg = 0;  
+ 140   1              g_sleepCnt = 0;
+ 141   1      }       
+ 142          
+ 143          
+ 144          /**************************************************************
+ 145          **函数名称：PowerSaving_MainLoop
+ 146          **函数描述：进入低功耗
+ 147          **入口参数：无
+ 148          **出口参数：无
+ 149          ***************************************************************/
+ 150          void PowerSaving_MainLoop(void)
+ 151          {
+ 152   1              bit IE_EA;
+ 153   1              I2CCON = 0;                                             //关闭I2C，因为I2C上电默认是打开的，必须关闭，否则主时钟无法关闭
+ 154   1              CKCON = 0;                                              //关闭所有时钟
+ 155   1              MECON |= BIT6;                          //设置FLASH进入深度睡眠模式
+ 156   1              PWCON = (PWCON&0xF0) | 0x04;            //设置内部LDO为低功率模式
+ 157   1              
+ 158   1              while(!CheckStopCondition());
+ 159   1              IE_EA = EA;                             //保存当前总中断开关状态
+ 160   1              EA = 0;                                 //关总中断
+ 161   1              StopEnter();    //进入STOP模式
+ 162   1              
+ 163   1              PWCON = (PWCON&0xF0) | 0x0B;    //退出STOP模式后必须设置LDO为高功率模式
+ 164   1              EA = IE_EA;                             //恢复之前的总中断状态
+ 165   1      
+ 166   1      }
+ 167          
+ 168                  
+ 169          
+ 170          
+ 171          /**************************************************************
+ 172          **函数名称：EnterStopMode
+ 173          **函数描述：进入低功耗前的关闭外设
+ 174          **入口参数：无
+ 175          **出口参数：无
+ 176          ***************************************************************/
+ 177          void EnterStopMode(void)
+C51 COMPILER V9.01   MAIN                                                                  07/28/2019 16:49:04 PAGE 4   
+
+ 178          {
+ 179   1              tVoltageAdc.rtmWakeAdcFg = 0;
+ 180   1      //      RTC_init(RTCE_On,MSE_Off,HSE_Off);
+ 181   1      //      RTM_init(0,10,40);      
+ 182   1              RTM_Con(RTM_On);
+ 183   1              
+ 184   1              GPIO_Init(SW_NB_IO,OUTPUT);
+ 185   1              SW_NB = 0;
+ 186   1      
+ 187   1              GPIO_Init(ALARM_IO,OUTPUT);
+ 188   1              ALARM_OUT = 0;
+ 189   1              
+ 190   1              GPIO_Init(NB_RESET_IO,OUTPUT);
+ 191   1              NB_RESET = 0;
+ 192   1              
+ 193   1              PWMEN &= (~((1<<PWM_CH2)|(1<<PWM_CH3)));
+ 194   1              GPIO_Init(P35F,OUTPUT);
+ 195   1              P35 = 0;
+ 196   1      
+ 197   1              GPIO_Init(P10F,HIGH_Z);                         //VOLTAGE_ADC_IO
+ 198   1              
+ 199   1              GPIO_Init(P11F,HIGH_Z);
+ 200   1              GPIO_Init(P12F,HIGH_Z);
+ 201   1              //GPIO_Init(P13F,HIGH_Z);
+ 202   1              GPIO_Init(P14F,HIGH_Z);
+ 203   1              GPIO_Init(P15F,HIGH_Z);
+ 204   1              
+ 205   1              //GPIO_Init(P16F,OUTPUT);
+ 206   1              
+ 207   1              GPIO_Init(P31F,HIGH_Z);
+ 208   1              GPIO_Init(P30F,HIGH_Z);
+ 209   1              
+ 210   1      //      GPIO_Init(P32F,HIGH_Z);         
+ 211   1      //      GPIO_Init(P33F,HIGH_Z); 
+ 212   1              
+ 213   1      
+ 214   1      #if 0
+                      GPIO_Init(P34F,HIGH_Z);
+                      GPIO_Init(P36F,HIGH_Z);
+                      GPIO_Init(P37F,HIGH_Z);
+                      GPIO_Init(P00F,HIGH_Z);
+                      GPIO_Init(P01F,HIGH_Z);
+                      GPIO_Init(P02F,HIGH_Z);
+                      GPIO_Init(P03F,HIGH_Z);
+                      GPIO_Init(P04F,HIGH_Z);
+                      GPIO_Init(P05F,HIGH_Z);
+                      GPIO_Init(P06F,HIGH_Z);
+                      GPIO_Init(P07F,HIGH_Z);
+                      GPIO_Init(P20F,HIGH_Z);
+                      GPIO_Init(P21F,HIGH_Z);
+              
+              #else   
+ 230   1              GPIO_Init(P34F,OUTPUT);
+ 231   1              GPIO_Init(P36F,OUTPUT);
+ 232   1              GPIO_Init(P37F,OUTPUT);
+ 233   1      
+ 234   1              GPIO_Init(P00F,OUTPUT);
+ 235   1              GPIO_Init(P01F,OUTPUT);
+ 236   1              GPIO_Init(P02F,OUTPUT);
+ 237   1              GPIO_Init(P03F,OUTPUT);
+ 238   1              GPIO_Init(P04F,OUTPUT);
+ 239   1              GPIO_Init(P05F,OUTPUT);
+C51 COMPILER V9.01   MAIN                                                                  07/28/2019 16:49:04 PAGE 5   
+
+ 240   1              GPIO_Init(P06F,OUTPUT);
+ 241   1              GPIO_Init(P07F,OUTPUT);
+ 242   1              GPIO_Init(P20F,OUTPUT);
+ 243   1              GPIO_Init(P21F,OUTPUT);
+ 244   1              P34 = 0;
+ 245   1              P36 = 0;
+ 246   1              P37 = 0;
+ 247   1              P00 = 0;
+ 248   1              P01 = 0;
+ 249   1              P02 = 0;
+ 250   1              P03 = 0;
+ 251   1              P04 = 0;
+ 252   1              P05 = 0;
+ 253   1              P06 = 0;
+ 254   1              P07 = 0;
+ 255   1              P20 = 0;        
+ 256   1              P21 = 0;
+ 257   1      #endif  
+ 258   1              EX_INT1_Init(); //开外部中断
+ 259   1      
+ 260   1              TR2 = 0;        //关定时器2
+ 261   1              ES0 = 0;        //关串口0
+ 262   1              ES1 = 0;        //关串口1
+ 263   1              
+ 264   1      //      ET0=0;          //关定时器0
+ 265   1      //      TR0=0;
+ 266   1      
+ 267   1              ET1=0;          //关定时器1
+ 268   1              TR1=0;
+ 269   1              
+ 270   1              INT2EN =0;      //INT2中断失能
+ 271   1              EPIE &=(~0X01);    //外部2中断失能
+ 272   1              
+ 273   1              ADCON |= ADIF;
+ 274   1              ADCON = 0;
+ 275   1      //      ADCFGL = 0x10;
+ 276   1      //      ADCFGH = 0x23;
+ 277   1              
+ 278   1              PWMEN=0;
+ 279   1                              
+ 280   1              Sys_Clk_Set_IRCL();
+ 281   1              PLLCON =0;      
+ 282   1              //WDFLG = 0xA5;//喂狗
+ 283   1              
+ 284   1              PowerSaving_MainLoop();
+ 285   1      
+ 286   1      }
+ 287          
+ 288          
+ 289          void main(void)
+ 290          {
+ 291   1      
+ 292   1              Sys_Clk_Set_PLL(PLL_Multiple);                  //时钟初始化
+ 293   1              
+ 294   1      #ifdef PRINT_EN         
+ 295   1              Uart0_Initial(UART0_BAUTRATE);          //串口0初始化
+ 296   1      #endif  
+ 297   1      
+ 298   1      #if 1   
+ 299   1              Timer1Init();                                                   //timer1初始化
+ 300   1              Uart1_Initial(UART1_BAUTRATE);                  //串口1初始化   
+ 301   1              NB73Init();                                                             //NB模块io的初始化
+C51 COMPILER V9.01   MAIN                                                                  07/28/2019 16:49:04 PAGE 6   
+
+ 302   1              AlarmGPIOInit();                                                //检测线 IO初始化   
+ 303   1              
+ 304   1              GPIO_Init(P32F,P32_XOSCL_IN_SETTING);   //rtc 初始化    
+ 305   1              GPIO_Init(P33F,P33_XOSCL_OUT_SETTING);                  
+ 306   1              RTC_init(RTCE_On,MSE_Off,HSE_Off);
+ 307   1              RTM_init(0,10,40);
+ 308   1              RTM_Con(RTM_Off);
+ 309   1              
+ 310   1              BuzzerInitSet();                                                //蜂鸣器初始化          
+ 311   1              
+ 312   1              VoltageAdcInit();                                               //ADC初始化
+ 313   1              tVoltageAdc.voltageValue = 8000;
+ 314   1              tVoltageAdc.rtmWakeAdcFg = 0;
+ 315   1      
+ 316   1              tAlarmDri.forwardFg = 1;
+ 317   1              tAlarmDri.frp = 5000;
+ 318   1              
+ 319   1      #endif
+ 320   1      
+ 321   1      #ifdef PRINT_EN 
+ 322   1              uart_printf("main  test!\r\n");
+ 323   1      #endif  
+ 324   1      
+ 325   1              EA = 1; 
+ 326   1      
+ 327   1              while(1)
+ 328   1              {
+ 329   2      #if 1   
+ 330   2                      NB73Tsak();
+ 331   2      
+ 332   2      #ifdef PRINT_EN         
+ 333   2                      if(Time_ms%200 == 0)
+ 334   2                      {       
+ 335   3                              uart_printf("V: %d\r\n",tVoltageAdc.voltageValue);
+ 336   3                      }
+ 337   2      #endif
+ 338   2      
+ 339   2      #else           
+                              if(g_sleepFg == 1)
+                              {
+              #ifdef PRINT_EN
+                                      uart_printf("V: %d\r\n",tVoltageAdc.voltageValue);
+                                      uart_printf("Stop\r\n");
+              #endif                  
+                                      Delay_ms(2);
+                                      
+                                      EnterStopMode();        
+                                      
+                                      WakeUp();
+                                      
+              #ifdef PRINT_EN                         
+                                      if(tVoltageAdc.rtmWakeAdcFg)
+                                      {
+                                              uart_printf("rtc wake\r\n");
+                                      }
+                                      else
+                                      {
+                                          uart_printf("int wake\r\n");
+                                      }
+              #endif                                  
+                              }
+              
+C51 COMPILER V9.01   MAIN                                                                  07/28/2019 16:49:04 PAGE 7   
+
+              #endif
+ 365   2              }
+ 366   1      
+ 367   1              return;
+ 368   1      }       
+ 369          
+ 370          
+ 371          #endif
+*** WARNING C312 IN LINE 371 OF main.c: misplaced endif control
+ 372          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    593    ----
+   CONSTANT SIZE    =     22    ----
+   XDATA SIZE       =      2    ----
+   PDATA SIZE       =      3    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----       1
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

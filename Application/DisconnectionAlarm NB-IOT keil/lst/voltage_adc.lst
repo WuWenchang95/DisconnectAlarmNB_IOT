@@ -1,0 +1,222 @@
+C51 COMPILER V9.01   VOLTAGE_ADC                                                           07/28/2019 16:49:05 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE VOLTAGE_ADC
+OBJECT MODULE PLACED IN .\hex\voltage_adc.obj
+COMPILER INVOKED BY: D:\keil\C51\BIN\C51.EXE ..\drive\Sources\voltage_adc.c COMPACT ROM(COMPACT) OPTIMIZE(9,SIZE) BROWSE
+                    - DEBUG OBJECTEXTEND PRINT(.\lst\voltage_adc.lst) OBJECT(.\hex\voltage_adc.obj)
+
+line level    source
+
+   1          #ifndef _VOLTAGE_ADC_C_
+   2          #define _VOLTAGE_ADC_C_
+   3          
+   4          /*********************************************************************************************************
+             -************/
+   5          #include "ca51f_config.h"
+   6          #if (IC_TYPE == IC_TYPE_CA51F2X)
+              #include "../../includes/ca51f2sfr.h"
+              #include "../../includes/ca51f2xsfr.h"
+              #include "../../includes/gpiodef_f2.h"
+              #elif (IC_TYPE == IC_TYPE_CA51F3X)
+  11          #include "../../includes/ca51f3sfr.h"
+  12          #include "../../includes/ca51f3xsfr.h"
+  13          #include "../../includes/gpiodef_f3.h"
+  14          #endif
+  15          #include "../../includes/system.h"
+  16          #include "../../Library/includes/system_clock.h"
+  17          #include "../../Library/includes/adc.h"
+  18          #include "../../Library/includes/uart.h"
+  19          #include "../../Library/includes/delay.h"
+  20          #include "../drive/Include/voltage_adc.h"
+  21          #include "../NB_iot/Nb_iot.h"
+  22          
+  23          #include "main.h"
+  24          #include <intrins.h>
+  25          
+  26          #define VOLTAGE_ADC_IO              P10F
+  27          #define VOLTAGE_ADC                     P10
+  28          
+  29          sVoltageAdc tVoltageAdc = {0};
+  30          
+  31          
+  32          /**************************************************************
+  33          **函数名称：VoltageAdcInit
+  34          **函数描述：电压检测初始化
+  35          **入口参数：
+  36          **出口参数：
+  37          ***************************************************************/
+  38          void VoltageAdcInit(void)
+  39          {
+  40   1              GPIO_Init(VOLTAGE_ADC_IO,P10_ADC0_SETTING);     
+  41   1              ADC_init(ADC_REF_VDD,DISABLE,DISABLE,NO_AMP);   //电压采集
+  42   1              ADC_ConfigChannel(ADC_CH0);
+  43   1      
+  44   1      //      StartVoltageAdc();
+  45   1      }
+  46          
+  47          /**************************************************************
+  48          **函数名称：StartVoltageAdc
+  49          **函数描述：启动电压检测
+  50          **入口参数：
+  51          **出口参数：
+  52          ***************************************************************/
+  53          void StartVoltageAdc(void)
+C51 COMPILER V9.01   VOLTAGE_ADC                                                           07/28/2019 16:49:05 PAGE 2   
+
+  54          {
+  55   1              ADC_StartConversion();
+  56   1      }
+  57          
+  58          /**************************************************************
+  59          **函数名称：VoltageADCCleck
+  60          **函数描述：取电压ADC值
+  61          **入口参数：
+  62          **出口参数：
+  63          ***************************************************************/
+  64          void VoltageADCCleck(void)
+  65          {
+  66   1              unsigned int AD_Value;
+  67   1              
+  68   1              ADC_init(ADC_REF_VDD,DISABLE,DISABLE,NO_AMP);   //电压采集
+  69   1              ADC_ConfigChannel(ADC_CH0);     
+  70   1              ADC_StartConversion();
+  71   1              AD_Value = GetAdcValue();
+  72   1      
+  73   1              tVoltageAdc.voltageADCTempData += AD_Value;
+  74   1              tVoltageAdc.voltageADCCnt++;
+  75   1              if(tVoltageAdc.voltageADCCnt >= 16)
+  76   1              {
+  77   2                      float tVoltValue;
+  78   2                      
+  79   2                      tVoltageAdc.voltageADCCnt = 0;
+  80   2                      tVoltageAdc.voltageADCValue = (tVoltageAdc.voltageADCTempData>>4);      
+  81   2                      tVoltageAdc.voltageADCTempData = 0;
+  82   2      
+  83   2                      tVoltValue = (float)(((float)((float)tVoltageAdc.voltageADCValue/4096))*3600)*3;
+  84   2                      tVoltageAdc.voltageValue = (uint16_t)tVoltValue;                                        
+  85   2              }       
+  86   1      
+  87   1      }
+  88          
+  89          /**************************************************************
+  90          **函数名称：ADC_ISR
+  91          **函数描述：ADC检测中断
+  92          **入口参数：
+  93          **出口参数：
+  94          ***************************************************************/
+  95          void ADC_ISR (void) interrupt 7
+  96          {
+  97   1              unsigned int AD_Value;
+  98   1              if(ADCON & ADIF)
+  99   1              {
+ 100   2                      ADCON |= ADIF; //清除 ADC 中断标志
+ 101   2                      AD_Value = ADCDH*256 + ADCDL; //读取 ADC 值
+ 102   2                      AD_Value >>= 4;
+ 103   2      
+ 104   2                      tVoltageAdc.voltageADCTempData += AD_Value;
+ 105   2                      tVoltageAdc.voltageADCCnt++;
+ 106   2                      if(tVoltageAdc.voltageADCCnt >= 16)
+ 107   2                      {
+ 108   3                              float tVoltValue;
+ 109   3                              
+ 110   3                              tVoltageAdc.voltageADCCnt = 0;
+ 111   3                              tVoltageAdc.voltageADCValue = (tVoltageAdc.voltageADCTempData>>4);      
+ 112   3                              tVoltageAdc.voltageADCTempData = 0;
+ 113   3      
+ 114   3                              tVoltValue = (float)(((float)((float)tVoltageAdc.voltageADCValue/4096))*3600)*3;
+ 115   3                              tVoltageAdc.voltageValue = (uint16_t)tVoltValue;                                        
+C51 COMPILER V9.01   VOLTAGE_ADC                                                           07/28/2019 16:49:05 PAGE 3   
+
+ 116   3                      }
+ 117   2                      
+ 118   2                      StartVoltageAdc();
+ 119   2              }
+ 120   1              
+ 121   1      }
+ 122          
+ 123          
+ 124          
+ 125          /**************************************************************
+ 126          **函数名称：IsLowVoltage
+ 127          **函数描述：电压是否过低
+ 128          **入口参数：
+ 129          **出口参数：
+ 130          ***************************************************************/
+ 131          uint8_t IsLowVoltage(void)
+ 132          {
+ 133   1              if(tVoltageAdc.voltageValue < VOLTAGE_LOW)
+ 134   1                      return 1;
+ 135   1              else
+ 136   1                      return 0;       
+ 137   1      }
+ 138          
+ 139          /**************************************************************
+ 140          **函数名称：VoltageCleck
+ 141          **函数描述：电压检测
+ 142          **入口参数：
+ 143          **出口参数：
+ 144          ***************************************************************/
+ 145          void VoltageCleck(void)
+ 146          {
+ 147   1              
+ 148   1              if(!tVoltageAdc.rtmWakeAdcFg)
+ 149   1              {
+ 150   2                      return;
+ 151   2              }       
+ 152   1              
+ 153   1          if(IsLowVoltage())
+ 154   1          {
+ 155   2              if(tVoltageAdc.tCnt < 80)
+ 156   2              {
+ 157   3                  tVoltageAdc.tCnt++;
+ 158   3                  if(tVoltageAdc.tCnt >= 79)
+ 159   3                  {
+ 160   4                      if(tVoltageAdc.lowFlag == 0)
+ 161   4                      {
+ 162   5                          tVoltageAdc.lowFlag = 1;
+ 163   5                                              if(!tVoltageAdc.publishFg)
+ 164   5                                              {
+ 165   6                                                      tVoltageAdc.publishFg = 1;
+ 166   6                                                      SetSendAlarmDataToCloud(LOW_BATTERY);
+ 167   6                                              }
+ 168   5                              
+ 169   5                      }
+ 170   4                  }
+ 171   3              }
+ 172   2          }
+ 173   1          else
+ 174   1          {
+ 175   2              if(tVoltageAdc.tCnt > 0)
+ 176   2              {
+ 177   3                  tVoltageAdc.tCnt--;
+C51 COMPILER V9.01   VOLTAGE_ADC                                                           07/28/2019 16:49:05 PAGE 4   
+
+ 178   3                  if(tVoltageAdc.tCnt == 0)
+ 179   3                  {
+ 180   4                      if(tVoltageAdc.lowFlag == 1)
+ 181   4                      {
+ 182   5                          tVoltageAdc.lowFlag = 0;
+ 183   5                      }
+ 184   4                  }
+ 185   3              }       
+ 186   2          }
+ 187   1      
+ 188   1      }
+ 189          #endif
+*** WARNING C312 IN LINE 189 OF ..\drive\Sources\voltage_adc.c: misplaced endif control
+ 190          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    400    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =     13       8
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  1 WARNING(S),  0 ERROR(S)

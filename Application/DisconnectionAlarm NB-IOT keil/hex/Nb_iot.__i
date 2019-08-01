@@ -1,0 +1,1 @@
+"..\NB_iot\Nb_iot.c" COMPACT ROM(COMPACT) OPTIMIZE (9,SIZE) BROWSE DEBUG OBJECTEXTEND PRINT(.\lst\Nb_iot.lst) OBJECT(.\hex\Nb_iot.obj)

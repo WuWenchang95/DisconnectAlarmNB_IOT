@@ -1,0 +1,148 @@
+C51 COMPILER V9.01   STOP_IDLE                                                             07/28/2019 16:38:42 PAGE 1   
+
+
+C51 COMPILER V9.01, COMPILATION OF MODULE STOP_IDLE
+OBJECT MODULE PLACED IN .\hex\stop_idle.obj
+COMPILER INVOKED BY: D:\keil\C51\BIN\C51.EXE ..\..\Library\Sources\stop_idle.c COMPACT ROM(COMPACT) OPTIMIZE(9,SIZE) BRO
+                    -WSE DEBUG OBJECTEXTEND PRINT(.\lst\stop_idle.lst) OBJECT(.\hex\stop_idle.obj)
+
+line level    source
+
+   1          #ifndef _STOP_IDLE_C_
+   2          #define _STOP_IDLE_C_
+   3          /*********************************************************************************************************
+             -************/
+   4          #include "ca51f_config.h"
+   5          #if (IC_TYPE == IC_TYPE_CA51F2X)
+              #include "../../includes/ca51f2sfr.h"
+              #include "../../includes/ca51f2xsfr.h"
+              #include "../../includes/gpiodef_f2.h"
+              #elif (IC_TYPE == IC_TYPE_CA51F3X)
+  10          #include "../../includes/ca51f3sfr.h"
+  11          #include "../../includes/ca51f3xsfr.h"
+  12          #include "../../includes/gpiodef_f3.h"
+  13          #endif
+  14          #include "../../includes/system.h"
+  15          #include "../../Library/includes/stop_idle.h"
+  16          #include "../../Library/includes/system_clock.h"
+  17          #include <intrins.h>
+  18          /*********************************************************************************************************
+             -************/
+  19          /******************************************************************************************
+  20          函数名：StopEnter
+  21          功能说明：进入STOP模式
+  22          输入参数：无
+  23          返回值：  无
+  24          ******************************************************************************************/
+  25          void StopEnter(void)
+  26          {
+  27   1              PCON |= STOP;
+  28   1              _nop_();
+  29   1              _nop_();
+  30   1              _nop_();        
+  31   1      }
+  32          
+  33          /******************************************************************************************
+  34          函数名：CheckStopCondition
+  35          功能说明：检查进入STOP模式的条件（注：如果STPSTH、STPSTL不为0，即使执行STOP指令，芯片也不会进入STOP）
+  36          输入参数：无
+  37          返回值：  0：不能进入STOP； 1： 可以进入STOP
+  38          ******************************************************************************************/
+  39          unsigned char CheckStopCondition(void)
+  40          {
+  41   1              if(STPSTH || STPSTL) return 0;
+  42   1              else return 1;
+  43   1      }
+  44          
+  45          /******************************************************************************************
+  46          函数名：        IdleEnter
+  47          功能说明：进入IDLE模式
+  48          输入参数：无
+  49          返回值：  无
+  50          ******************************************************************************************/
+  51          //void IdleEnter(void)
+  52          //{
+C51 COMPILER V9.01   STOP_IDLE                                                             07/28/2019 16:38:42 PAGE 2   
+
+  53          //      PCON |= IDLE;
+  54          //      _nop_();
+  55          //      _nop_();
+  56          //}
+  57          
+  58          /******************************************************************************************
+  59          函数名：CheckIdleCondition
+  60          功能说明：检查进入IDLE模式的条件（注：如果IDLSTH、IDLSTL不为0，即使执行IDLE指令，芯片也不会进入IDLE）
+  61          输入参数：无
+  62          返回值：  0：不能进入IDLE； 1： 可以进入IDLE
+  63          ******************************************************************************************/
+  64          //unsigned char CheckIdleCondition(void)
+  65          //{
+  66          //      if(IDLSTH || IDLSTL) return 0;
+  67          //      else return 1;
+  68          //}
+  69          /*********************************************************************************************************
+             -************/
+  70          
+  71          
+  72          
+  73          
+  74          
+  75          
+  76          //void PowerSaving_Loop(void)
+  77          //{
+  78          
+  79          //      bit IE_EA;
+  80          //      I2CCON = 0;                                             //关闭I2C，因为I2C上电默认是打开的，必须关闭，否则主时钟无法关闭
+  81          //      CKCON = 0;                                              //关闭所有时钟
+  82          //      MECON |= BIT6;                          //设置FLASH进入深度睡眠模式
+  83          //      PWCON = (PWCON&0xF0) | 0x04;            //设置内部LDO为低功率模式
+  84          //      ///////////////////////////////////////////////////////////////////////
+  85          //      INT9EN =0;
+  86          //      PLLCON = 0;
+  87          //              
+  88          //      while(!CheckStopCondition());
+  89          //      IE_EA = EA;                             //保存当前总中断开关状态
+  90          //      EA = 0;                                 //关总中断
+  91          //      StopEnter();    //进入STOP模式
+  92          //      
+  93          //      PWCON = (PWCON&0xF0) | 0x0B;    //退出STOP模式后必须设置LDO为高功率模式
+  94          //      EA = IE_EA;                             //恢复之前的总中断状态
+  95          //      
+  96          //      INT9EN =1;
+  97          //      
+  98          //      while(1)
+  99          //      {
+ 100          //              
+ 101          //              
+ 102          //      }
+ 103          //}     
+ 104          
+ 105          
+ 106          
+ 107          
+ 108          
+ 109          
+ 110          
+ 111          
+ 112          
+ 113          
+C51 COMPILER V9.01   STOP_IDLE                                                             07/28/2019 16:38:42 PAGE 3   
+
+ 114          
+ 115          
+ 116          
+ 117          #endif
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =     21    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----    ----
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)
